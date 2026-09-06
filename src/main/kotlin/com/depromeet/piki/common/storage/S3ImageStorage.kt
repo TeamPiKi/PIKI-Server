@@ -51,9 +51,6 @@ class S3ImageStorage(
         expiry: Duration,
     ): String =
         // 서명은 로컬 계산이라 네트워크 호출이 없지만, SDK 예외(자격증명 없음 등)는 계약 예외(502)로 변환한다.
-        // contentType·contentLength 를 putObjectRequest 에 박아 서명하면 둘 다 signed header 가 되어, 클라이언트는 같은
-        // Content-Type·Content-Length 로만 PUT 할 수 있다(S3 가 강제). 서명은 정확한 값이라 "이하" 범위는 못 걸고, 상한
-        // 검증은 발급 전 UploadSize 가 맡는다.
         runCatching {
             s3Presigner
                 .presignPutObject(

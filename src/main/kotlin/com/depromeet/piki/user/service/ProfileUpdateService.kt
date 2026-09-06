@@ -33,7 +33,7 @@ class ProfileUpdateService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     // 업로드 URL 발급. 권한(MEMBER)을 여기서 먼저 본다 — 게스트에게는 발급 자체를 막아 S3 에 올릴 기회를 주지 않는다.
-    // 형식은 ProfileImageFile 의 허용 목록으로 거른다(확정 단계 of() 와 같은 정책). 크기는 상품 이미지와 공통(UploadSize).
+    // 형식은 ProfileImageFile 의 허용 목록으로 거른다(확정 단계 of() 와 같은 정책).
     fun presignProfileImage(
         userId: UUID,
         contentType: String,

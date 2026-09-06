@@ -90,7 +90,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
             val jpgKey = uploads.path(1).path("imageKey").asText()
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.png$").matches(pngKey), "png imageKey 형식: $pngKey")
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.jpg$").matches(jpgKey), "jpg imageKey 형식: $jpgKey")
-            // 클라가 선언한 바이트 수가 그대로 서명(Content-Length)에 묶여야 S3 가 다른 크기의 PUT 을 거절한다.
             assertEquals(listOf<Long?>(2_048L, 2_048L), stubImageStorage.presignedContentLengths.drop(presignedBefore))
         } finally {
             cleanup(userId)
@@ -104,7 +103,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         insertMember(userId)
         val presignedBefore = stubImageStorage.presignedKeys.size
         try {
-            // 상한은 UploadSize 가 단위로 망라한다. 여기선 발급 계약(400 code)과 "거부되면 서명도 없다" 만 고정한다.
             val body =
                 objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = UploadSize.MAX_BYTES + 1))
             mockMvc
@@ -149,7 +147,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         insertMember(userId)
         val presignedBefore = stubImageStorage.presignedContentLengths.size
         try {
-            // 구버전 클라 호환 — 크기가 서명에 안 들어가는 대신 발급은 된다. 클라 전환이 끝나면 이 테스트는 400 으로 뒤집힌다.
+            // 클라 전환이 끝나면 400(UPLOAD-004) 으로 뒤집는다.
             val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = null))
             mockMvc
                 .perform(

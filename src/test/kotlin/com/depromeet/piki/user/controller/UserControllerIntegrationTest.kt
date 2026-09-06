@@ -286,7 +286,6 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
         insertUser(userId, identityType = IdentityType.MEMBER)
         val presignedBefore = stubImageStorage.presignedKeys.size
 
-        // 크기 상한은 상품 이미지와 공통(UploadSize)이라 프로필 발급도 같은 code 로 거른다. 거부되면 서명도 없어야 한다.
         mockMvc
             .perform(
                 post("/api/v1/users/me/profile-image")
@@ -309,7 +308,7 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
         insertUser(userId, identityType = IdentityType.MEMBER)
         val presignedBefore = stubImageStorage.presignedContentLengths.size
 
-        // 구버전 클라 호환 — 클라 전환이 끝나면 이 테스트는 400(UPLOAD-004) 으로 뒤집힌다.
+        // 클라 전환이 끝나면 400(UPLOAD-004) 으로 뒤집는다.
         mockMvc
             .perform(
                 post("/api/v1/users/me/profile-image")

@@ -3,11 +3,8 @@ package com.depromeet.piki.image.controller.dto
 import com.depromeet.piki.image.domain.UploadFormat
 import io.swagger.v3.oas.annotations.media.Schema
 
-// 이미지 등록 v2 presigned 발급 요청 — 올릴 이미지들의 content-type·바이트 수 목록(1~5개).
 // 개수·형식·크기 검증은 서버가 도메인 계약으로 하므로 Bean Validation 을 걸지 않는다.
-//
-// 과도기 호환: 구버전 클라는 contentTypes(문자열 목록)만 보낸다. images 가 없으면 contentTypes 를 크기 없는 목록으로
-// 읽는다. 클라가 전부 images 로 넘어오면 contentTypes 를 지우고 images 를 필수로 만든다(UploadSize 의 과도기 주석과 짝).
+// contentTypes 는 구버전 클라 호환용 — 클라 전환이 끝나면 지우고 images 를 필수로 만든다(UploadSize.ofOrNull 과 짝).
 @Schema(description = "presigned 업로드 URL 발급 요청")
 data class PresignedImageUploadRequest(
     @field:Schema(
@@ -38,8 +35,6 @@ data class PresignedImageUploadRequest(
         val contentLength: Long?,
     )
 
-    // 형식·크기 검증을 통과한 발급 입력. 지원하지 않는 형식(PRODUCTIMAGE-002/003)·크기 위반(UPLOAD-003/004)은 여기서 400 으로 끝난다.
-    // 둘 다 없으면 빈 목록 — 개수 검증(1~5)이 400 으로 거른다.
     fun toUploadFormats(): List<UploadFormat> =
         images?.map { UploadFormat.of(it.contentType, it.contentLength) }
             ?: contentTypes.orEmpty().map { UploadFormat.of(it, null) }

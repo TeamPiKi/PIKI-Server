@@ -47,7 +47,6 @@ class StubImageStorage : ImageStorage {
         { key, _, _, _ -> "$BASE_URL/$key?X-Amz-Signature=stub" }
     var presignBehavior: (String, String, Long?, Duration) -> String = defaultPresignBehavior
 
-    // 서명에 묶인 바이트 수 기록 — 발급 검증이 통과시킨 contentLength 가 그대로 서명으로 넘어가는지(생략이면 null) 본다.
     val presignedContentLengths = mutableListOf<Long?>()
 
     override fun presignUpload(
