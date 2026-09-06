@@ -62,6 +62,7 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data[0].item.name").value("새 기계값"))
             .andExpect(jsonPath("$.data[0].item.price").value(90_000))
+            .andExpect(jsonPath("$.data[0].item.sourcePlatform").value("example"))
         mockMvc
             .perform(get("/api/v1/wishlists/$wishId").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
             .andExpect(status().isOk)
