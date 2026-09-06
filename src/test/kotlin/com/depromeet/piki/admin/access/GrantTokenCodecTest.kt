@@ -33,7 +33,7 @@ class GrantTokenCodecTest {
     @Test
     fun `서명이 변조되면 거부한다`() {
         val token = codec().issue("uid1", "n", "dev")
-        assertNull(codec().verify(token.dropLast(2) + "00"))
+        assertNull(codec().verify(tamperLastSignatureChar(token)))
     }
 
     @Test
@@ -102,6 +102,9 @@ class GrantTokenCodecTest {
         assertNull(codec().verify(signedToken(payloadWithD(123))))
         assertNull(codec().verify(signedToken(payloadWithD(emptyMap<String, String>()))))
     }
+
+    private fun tamperLastSignatureChar(token: String): String =
+        token.dropLast(1) + if (token.last() == '0') '1' else '0'
 
     // d 를 넣지 않는 등 임의 payload 를 GrantTokenCodec 과 동일한 방식(base64url(json).HMAC-SHA256 hex)으로 서명한다.
     private fun basePayload(): MutableMap<String, String> =
