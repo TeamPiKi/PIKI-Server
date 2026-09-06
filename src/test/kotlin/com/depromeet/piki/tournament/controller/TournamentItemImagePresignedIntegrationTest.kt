@@ -1,9 +1,11 @@
 package com.depromeet.piki.tournament.controller
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.support.IntegrationTestSupport
-import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubImageSnapshotExtractor
+import com.depromeet.piki.support.StubImageStorage
+import com.depromeet.piki.support.presignImages
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.user.domain.IdentityType
 import org.awaitility.Awaitility.await
@@ -55,7 +57,7 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         var tournamentId = 0L
         try {
             tournamentId = createTournament(mockMvc, ownerId)
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png", "image/jpeg")))
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png", "image/jpeg")))
             mockMvc
                 .perform(
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")
@@ -81,7 +83,7 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         var tournamentId = 0L
         try {
             tournamentId = createTournament(mockMvc, ownerId)
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png")))
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png")))
             mockMvc
                 .perform(
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")
@@ -214,7 +216,7 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         var tournamentId = 0L
         try {
             tournamentId = createTournament(mockMvc, ownerId)
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("application/pdf")))
+            val body = objectMapper.writeValueAsString(presignImages(listOf("application/pdf")))
             mockMvc
                 .perform(
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")
@@ -230,6 +232,28 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
+    fun `contentLength 가 5MB 를 넘으면 UPLOAD-003 으로 400 이 반환된다`() {
+        val mockMvc = buildMockMvc()
+        val ownerId = UUID.randomUUID()
+        insertMember(ownerId)
+        var tournamentId = 0L
+        try {
+            tournamentId = createTournament(mockMvc, ownerId)
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = UploadSize.MAX_BYTES + 1))
+            mockMvc
+                .perform(
+                    post("/api/v1/tournaments/$tournamentId/items/images/presigned")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(ownerId)}")
+                        .content(body),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("UPLOAD-003"))
+        } finally {
+            cleanup(ownerId, tournamentId)
+        }
+    }
+
+    @Test
     fun `content-type 이 6개면 개수 위반으로 400 이 반환된다`() {
         val mockMvc = buildMockMvc()
         val ownerId = UUID.randomUUID()
@@ -237,7 +261,7 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         var tournamentId = 0L
         try {
             tournamentId = createTournament(mockMvc, ownerId)
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to List(6) { "image/png" }))
+            val body = objectMapper.writeValueAsString(presignImages(List(6) { "image/png" }))
             mockMvc
                 .perform(
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")
@@ -304,7 +328,7 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         tournamentId: Long,
         contentTypes: List<String>,
     ): List<String> {
-        val body = objectMapper.writeValueAsString(mapOf("contentTypes" to contentTypes))
+        val body = objectMapper.writeValueAsString(presignImages(contentTypes))
         val response =
             mockMvc
                 .perform(

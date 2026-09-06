@@ -79,11 +79,12 @@ interface UserApi {
         description =
             "프로필 이미지를 올릴 **presigned URL** 을 발급한다. 바이트는 서버를 거치지 않고 클라가 S3 로 직접 PUT 한다.\n\n" +
                 "**흐름**\n\n" +
-                "1. 이 API 로 `contentType` 을 보내 `uploadUrl` · `imageKey` 를 받는다.\n" +
-                "2. `uploadUrl` 에 이미지를 PUT 한다 (`Content-Type` 헤더는 응답의 `contentType` 과 같아야 한다 — 서명에 박혀 있어 다르면 S3 가 거부).\n" +
+                "1. 이 API 로 `contentType` · `contentLength`(바이트 수) 를 보내 `uploadUrl` · `imageKey` 를 받는다.\n" +
+                "2. `uploadUrl` 에 이미지를 PUT 한다 (`Content-Type` 헤더는 응답의 `contentType` 과, `Content-Length` 는 " +
+                "요청의 `contentLength` 와 같아야 한다 — 둘 다 서명에 박혀 있어 다르면 S3 가 거부).\n" +
                 "3. `PATCH /users/me` 에 `imageKey` 를 실어 확정한다. 서버가 그 원본을 읽어 검증하고 최종 경로에 저장한다.\n\n" +
                 "- **MEMBER 전용** — 게스트는 발급 단계에서 403 으로 막는다 (올릴 기회 자체를 주지 않는다).\n" +
-                "- 허용 형식: `image/png` · `image/jpeg` · `image/webp` · `image/heic` · `image/heif`.\n" +
+                "- 허용 형식: `image/png` · `image/jpeg` · `image/webp` · `image/heic` · `image/heif`. 한 장의 상한은 5MB 다.\n" +
                 "- 발급된 URL 은 5분 뒤 만료된다. 확정되지 않은 원본은 하루 뒤 자동 삭제된다.",
     )
     @ApiResponses(
@@ -103,7 +104,9 @@ interface UserApi {
                 description =
                     "잘못된 요청\n\n" +
                         "- `contentType` 이 비어 있음 (형식 검증 400, COMMON-INVALID-INPUT)\n" +
-                        "- 지원하지 않는 형식 (`png`/`jpeg`/`webp`/`heic`/`heif` 만 허용) (USER-010)",
+                        "- 지원하지 않는 형식 (`png`/`jpeg`/`webp`/`heic`/`heif` 만 허용) (USER-010)\n" +
+                        "- `contentLength` 가 5MB 를 넘음 (UPLOAD-003)\n" +
+                        "- `contentLength` 가 없거나 0 이하 (UPLOAD-004)",
                 content = [
                     Content(
                         mediaType = MediaType.APPLICATION_JSON_VALUE,

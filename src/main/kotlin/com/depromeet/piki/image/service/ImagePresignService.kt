@@ -5,6 +5,7 @@ import com.depromeet.piki.common.storage.S3Properties
 import com.depromeet.piki.image.domain.ImageUploadException
 import com.depromeet.piki.image.domain.ProductImage
 import com.depromeet.piki.image.domain.UploadFormat
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.image.service.dto.PresignedRawUpload
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -19,14 +20,15 @@ class ImagePresignService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     fun presignRawUploads(formats: List<UploadFormat>): List<PresignedRawUpload> =
-        formats.map { presignRawUpload(it.extension, it.contentType) }
+        formats.map { presignRawUpload(it.extension, it.contentType, it.size) }
 
     fun presignRawUpload(
         extension: String,
         contentType: String,
+        size: UploadSize,
     ): PresignedRawUpload {
         val key = "$RAW_PREFIX${UUID.randomUUID()}.$extension"
-        val url = imageStorage.presignUpload(key, contentType, s3Properties.presignedUploadExpiry)
+        val url = imageStorage.presignUpload(key, contentType, size.bytes, s3Properties.presignedUploadExpiry)
         return PresignedRawUpload(imageKey = key, uploadUrl = url, contentType = contentType)
     }
 

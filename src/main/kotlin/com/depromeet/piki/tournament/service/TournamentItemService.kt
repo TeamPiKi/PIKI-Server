@@ -61,11 +61,10 @@ class TournamentItemService(
     fun presignImageUploads(
         userId: UUID,
         tournamentId: Long,
-        contentTypes: List<String>,
+        formats: List<UploadFormat>,
     ): List<PresignedRawUpload> {
-        if (contentTypes.size !in MIN_IMAGE_COUNT..MAX_IMAGE_COUNT) throw TournamentException.invalidImageCount()
+        if (formats.size !in MIN_IMAGE_COUNT..MAX_IMAGE_COUNT) throw TournamentException.invalidImageCount()
         tournamentItemPersistenceService.verifyCanAddItems(userId, tournamentId)
-        val formats = contentTypes.map { UploadFormat.of(it) }
         itemQuotaGuard.consume(ownerIdOf(tournamentId), formats.size, ItemErrorCode.QUOTA_EXCEEDED)
         return imagePresignService.presignRawUploads(formats)
     }

@@ -1,6 +1,7 @@
 package com.depromeet.piki.user.service
 
 import com.depromeet.piki.common.storage.ImageStorage
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.image.service.ImagePresignService
 import com.depromeet.piki.image.service.dto.PresignedRawUpload
 import com.depromeet.piki.user.domain.IdentityType
@@ -32,15 +33,17 @@ class ProfileUpdateService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     // 업로드 URL 발급. 권한(MEMBER)을 여기서 먼저 본다 — 게스트에게는 발급 자체를 막아 S3 에 올릴 기회를 주지 않는다.
-    // 형식은 ProfileImageFile 의 허용 목록으로 거른다(확정 단계 of() 와 같은 정책).
+    // 형식은 ProfileImageFile 의 허용 목록으로 거른다(확정 단계 of() 와 같은 정책). 크기는 상품 이미지와 공통(UploadSize).
     fun presignProfileImage(
         userId: UUID,
         contentType: String,
+        contentLength: Long?,
     ): PresignedRawUpload {
         requireMemberForProfileImage(userId)
         return imagePresignService.presignRawUpload(
             extension = ProfileImageFile.extensionForMimeType(contentType),
             contentType = contentType,
+            size = UploadSize.of(contentLength),
         )
     }
 

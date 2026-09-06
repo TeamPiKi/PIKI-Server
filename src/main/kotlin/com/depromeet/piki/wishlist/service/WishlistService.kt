@@ -63,12 +63,11 @@ class WishlistService(
     }
 
     fun presignImageUploads(
-        contentTypes: List<String>,
+        formats: List<UploadFormat>,
         userId: UUID,
     ): List<PresignedRawUpload> {
         requireMember(userId)
-        if (contentTypes.size !in MIN_IMAGE_COUNT..MAX_IMAGE_COUNT) throw WishException.invalidImageCount()
-        val formats = contentTypes.map { UploadFormat.of(it) }
+        if (formats.size !in MIN_IMAGE_COUNT..MAX_IMAGE_COUNT) throw WishException.invalidImageCount()
         itemQuotaGuard.consume(userId, formats.size, ItemErrorCode.QUOTA_EXCEEDED)
         return imagePresignService.presignRawUploads(formats)
     }
