@@ -32,7 +32,16 @@ class ItemSnapshot(
     attemptCount: Int = 0,
     source: ItemSnapshotSource? = null,
     editedBy: UUID? = null,
+    createdBy: UUID? = null,
 ) : LongBaseEntity() {
+    // 이 버전을 만든 맥락의 사람(#1051) — 서버 행은 파싱을 시킨 사람(등록자·새로고침한 사람), MANUAL 행은 고친 사람.
+    // 카드 표시값(ItemVersions)이 "내 맥락의 행" 을 가르는 유일한 근거다. 도입 전 행은 추정 백필로 채우되 아무도
+    // 가리키지 않던 옛 이력은 null(모름)로 남는다. edited_by 는 이 컬럼에 흡수된다(제거는 후속 단계, 지금은 둘 다 쓴다).
+    // MANUAL 행은 편집자가 곧 만든 사람이라 createdBy 를 따로 안 줘도 editedBy 로 채운다(백필과 같은 규칙).
+    @Column(name = "created_by", columnDefinition = "BINARY(16)")
+    var createdBy: UUID? = createdBy ?: editedBy
+        protected set
+
     // 이 버전의 출처(#825 결정 4) — SERVER(파서)/SERVER_LLM(LLM)/MANUAL(수기). 카드·가격 추적은 마지막
     // SERVER* READY 만 믿는다. 도입 전 기존 행은 소급 불가라 null("모름")로 남는다(forward-only).
     @Enumerated(EnumType.STRING)
@@ -199,6 +208,21 @@ class ItemSnapshot(
     // 가드에서 쓴다: 이미 진행 중이면 새 추출 버전을 만들지 않는다. READY/FAILED 만 새로고침으로 새 버전을 띄운다.
     fun isInProgress(): Boolean = status == ItemStatus.PENDING || status == ItemStatus.PROCESSING
 
+    // 카드에 보일 값을 가진 버전인지 — READY(완성)와 INCOMPLETE(일부). FAILED·진행 중은 값이 없다.
+    fun hasValue(): Boolean = isReady() || isIncomplete()
+
+    fun isManual(): Boolean = source == ItemSnapshotSource.MANUAL
+
+    // 기계(SERVER/SERVER_LLM) 추출 버전인지. 출처 미상(도입 전 행)은 false 다.
+    fun isMachine(): Boolean = source == ItemSnapshotSource.SERVER || source == ItemSnapshotSource.SERVER_LLM
+
+    // 이 버전이 user 의 맥락에서 만들어졌는지(그 사람이 시켰거나 고쳤는지). 표시값 판정(ItemVersions)의 근거.
+    fun isOwnedBy(user: UUID): Boolean = createdBy == user
+
+    // 누구의 카드에나 보이는 공유 값인지 — 기계 READY. 출처도 만든 사람도 모르는 도입 전 READY 행은 수기라 볼 근거가
+    // 없어 공유 값으로 취급한다(그 행이 유일한 값이던 카드가 비지 않게).
+    fun isSharedValue(): Boolean = isReady() && (isMachine() || (source == null && createdBy == null))
+
     // READY 불변식 — 유저가 가격·이미지·이름을 보고 아이템을 선택하고, 가격 이력은 추출시각(extractedAt)을 축으로
     // 보여주므로 이 네 필드가 다 있어야 쓸 수 있는 버전이다. READY 를 만드는 두 경로(markReady·manual)가
     // 값과 extractedAt 을 채운 뒤 이 검증을 거쳐 "READY ⟹ 네 필드 non-null" 을 엔티티가 보장한다(최후의 보루).
@@ -256,7 +280,11 @@ class ItemSnapshot(
         // 작업의 진실 원천이라, **마감 안에 슬롯이 나기만 하면** 반드시 claim 돼 실행이 시작된다.
         // (마감까지 슬롯이 끝내 나지 않으면 실행 0회로 FAILED 종결된다 — expire. 지속 과부하에서 무한 대기하느니
         //  사용자에게 결론을 주는 쪽을 택한 것이고, 그 빈도는 REASON_DEADLINE 메트릭이 관측한다.)
-        fun pending(itemId: Long): ItemSnapshot = ItemSnapshot(itemId = itemId, status = ItemStatus.PENDING)
+        // requestedBy 는 이 파싱을 시킨 사람(#1051) — 등록자 또는 새로고침한 사람. 카드 표시값과 파싱 알림 수신자의 근거.
+        fun pending(
+            itemId: Long,
+            requestedBy: UUID,
+        ): ItemSnapshot = ItemSnapshot(itemId = itemId, status = ItemStatus.PENDING, createdBy = requestedBy)
 
         // 수기 수정 버전(#825 결정 4) — 사용자가 입력한 값으로 만드는 새 READY 버전. 기존 행을 고치지 않는 이유:
         // 기계 버전은 불변이어야 이력이 보존되고, 카드·가격 추적이 "마지막 SERVER* READY" 를 믿는 구조에서
@@ -291,6 +319,7 @@ class ItemSnapshot(
                 extractedAt = LocalDateTime.now(),
                 source = ItemSnapshotSource.MANUAL,
                 editedBy = editedBy,
+                createdBy = editedBy,
             )
         }
     }

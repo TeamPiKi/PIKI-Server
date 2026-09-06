@@ -12,6 +12,7 @@ import com.depromeet.piki.item.domain.ItemErrorCode
 import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.item.service.ItemRegistrar
 import com.depromeet.piki.product.domain.ProductLink
@@ -99,13 +100,13 @@ class WishlistService(
         val hasNext = fetched.size > size
         val pageWishes = fetched.take(size)
 
-        // 포인터 버전을 끌어온 뒤 표시값은 파생한다(#857) — 카드는 항상 그 상품의 마지막 기계 READY 를 향하고,
-        // 수기 존중·진행 중 유지 등 규칙은 ItemDisplayService 가 진다. 포인터는 정체성 도달·수기 존중 판정의 표식이다.
+        // 포인터 버전을 끌어온 뒤 표시값은 파생한다(#857·#1051) — 규칙은 ItemVersions 가 진다(내 맥락의 값 vs 공유 기계 READY).
+        // 포인터는 정체성 도달(itemId)·결과 키에만 쓰이고, 카드 주인은 위시 주인이다.
         val snapshotsById =
             itemSnapshotRepository
                 .findByIds(pageWishes.map { it.snapshotId })
                 .associateBy { it.getId() }
-        val displayById = itemDisplayService.resolveDisplay(snapshotsById.values)
+        val displayById = itemDisplayService.resolveDisplay(snapshotsById.values.map { DisplayCard(it, owner = userId) })
         // item 정체성은 snapshot.itemId 단일 출처다. snapshot 에서 itemId 를 모아 item 을 한 번에 끌어온다.
         val itemsById = itemRepository
             .findByIds(snapshotsById.values.map { it.itemId })
@@ -155,7 +156,7 @@ class WishlistService(
         return WishDetail(
             wish = wish,
             item = item,
-            snapshot = itemDisplayService.resolveDisplay(pointer),
+            snapshot = itemDisplayService.resolveDisplay(pointer, owner = userId),
             history = history,
         )
     }
@@ -180,7 +181,7 @@ class WishlistService(
             memo?.let {
                 val result = wishPersistenceService.updateMemo(userId = userId, wishId = wishId, memo = it)
                 // 표시값 파생(#857) — 조회와 같은 규칙으로 응답의 item 을 맞춘다.
-                return result.copy(snapshot = itemDisplayService.resolveDisplay(result.snapshot))
+                return result.copy(snapshot = itemDisplayService.resolveDisplay(result.snapshot, owner = userId))
             }
         }
         // 이미지 형식 검증(빈 바이트·미지원 MIME) — 외부 호출 전에 동기로 거른다(400).

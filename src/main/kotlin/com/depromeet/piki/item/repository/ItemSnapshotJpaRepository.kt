@@ -67,6 +67,9 @@ interface ItemSnapshotJpaRepository : JpaRepository<ItemSnapshot, Long> {
     // 살아있는 행만 id 목록으로 일괄 조회.
     fun findByIdInAndDeletedAtIsNull(ids: Collection<Long>): List<ItemSnapshot>
 
+    // 카드 표시값 파생(#1051) — 여러 item 의 살아있는 버전 전체, id 오름차순. idx_item_snapshots_item_id 로 커버된다.
+    fun findByItemIdInAndDeletedAtIsNullOrderByIdAsc(itemIds: Collection<Long>): List<ItemSnapshot>
+
     // 공유 등록(#825 활성화)의 합류 판정 — 이 item 에 진행 중(PENDING/PROCESSING) 버전이 있으면 새 작업을 만들지
     // 않고 그 진행에 붙는다. 최신 우선(id desc)으로 하나만.
     @Query(

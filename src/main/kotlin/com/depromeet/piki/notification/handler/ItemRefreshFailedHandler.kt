@@ -28,6 +28,8 @@ class ItemRefreshFailedHandler(
         recipients: Set<UUID>,
     ): Map<UUID, RecipientContext> {
         val contexts = recipientResolver.resolveRefreshContexts(event.snapshotId)
-        return recipients.associateWith { userId -> contexts[userId] ?: RecipientContext(routing = NotificationRouting.Wish(null)) }
+        return recipients.associateWith { userId ->
+            contexts[userId] ?: RecipientContext(routing = NotificationRouting.Wish(null))
+        }
     }
 }

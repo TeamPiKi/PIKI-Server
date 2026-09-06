@@ -62,13 +62,16 @@ class WishPersistenceService(
         link: ProductLink,
     ): WishWithItem? {
         val shared = itemSharingService.resolveExistingItem(link) ?: return null
-        val attachment = itemSharingService.resolveAttachment(shared.getId(), link)
+        val attachment = itemSharingService.resolveAttachment(shared.getId(), link, requestedBy = userId)
         // 중복 판정의 기준은 별칭으로 찾은 shared 가 아니라 실제로 붙은 attachment.item 이다 - 병합 재시도
         // 경합에선 둘이 다르다(shared=loser, attachment.item=winner). 행 락 뒤라 이 검사도 직렬화된다.
         existingWishId(attachment.item.getId(), userId)?.let {
             throw AlreadyRegisteredException.wish(WishErrorCode.ALREADY_EXISTS, it)
         }
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = attachment.snapshot.getId()))
+        val wish =
+            wishRepository.save(
+                Wish(userId = userId, snapshotId = attachment.snapshot.getId(), itemId = attachment.item.getId()),
+            )
         return WishWithItem(
             wish = wish,
             item = attachment.item,
@@ -85,8 +88,8 @@ class WishPersistenceService(
     ): WishWithItem {
         val saved = itemRepository.save(item)
         itemIdentityRecorder.recordRegistrationAlias(saved)
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(saved.getId()))
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId()))
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(saved.getId(), requestedBy = userId))
+        val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = saved.getId()))
         return WishWithItem(wish = wish, item = saved, snapshot = snapshot)
     }
 
@@ -161,7 +164,7 @@ class WishPersistenceService(
         val pointer =
             itemSnapshotRepository.findById(wish.snapshotId)
                 ?: error("wish ${wish.getId()} 의 snapshot ${wish.snapshotId} 가 없다")
-        return itemDisplayService.resolveDisplay(pointer)
+        return itemDisplayService.resolveDisplay(pointer, owner = wish.userId)
     }
 
     // memo 만 온 수정 — 버전(snapshot)을 쌓지 않고 wish 행만 갱신한다. 포인터를 안 바꿔도 행 락은 필요하다:
@@ -215,11 +218,11 @@ class WishPersistenceService(
         // 떠 있고, item 이 추출 가능하다는 증거이므로 새로고침을 막을 이유가 없다. 표시값까지 FAILED(기계 READY
         // 부재)면 재추출도 결정론적으로 재실패할 것이라 보정(recover, 수기 수정)으로 유도한다(409).
         // 포인터부터 보는 단락 평가 — FAILED 가 아니면 표시값도 FAILED 일 수 없어(파생 후보가 READY 뿐) 쿼리가 무의미하다.
-        if (activeSnapshot.isFailed() && itemDisplayService.resolveDisplay(activeSnapshot).isFailed()) {
+        if (activeSnapshot.isFailed() && itemDisplayService.resolveDisplay(activeSnapshot, owner = userId).isFailed()) {
             throw WishException.failedNotRefreshable()
         }
-        // 새 PENDING 버전을 작업 큐에 적재하고 활성 포인터를 즉시 스왑한다.
-        val newSnapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()))
+        // 새 PENDING 버전을 작업 큐에 적재하고 활성 포인터를 즉시 스왑한다. 요청자는 새로고침한 본인(#1051).
+        val newSnapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId))
         wish.swapSnapshot(newSnapshot.getId())
         return WishWithItem(wish = wish, item = item, snapshot = newSnapshot)
     }

@@ -78,7 +78,7 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
             // 풀이 가득 찬 뒤에 일감을 만든다 — 그전에 만들면 배경 디스패처가 먼저 집어 전제가 깨진다.
             val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/capacity-${UUID.randomUUID()}")))
             itemId = item.getId()
-            val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(itemId)).getId()
+            val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID())).getId()
 
             itemParsingScheduler.dispatch()
             assertEquals(ItemStatus.PENDING, statusOf(snapshotId), "가용 슬롯이 없으면 claim 하지 않고 PENDING 으로 남겨야 한다")
@@ -156,7 +156,7 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
     // 경합을 없앤다(stale 쪽에서 updated_at 으로 쓰는 것과 같은 기법).
     private fun overdue(status: ItemStatus): Pair<Long, Long> {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/overdue-${UUID.randomUUID()}")))
-        val snapshot = ItemSnapshot.pending(item.getId()).apply { if (status == ItemStatus.PROCESSING) markProcessing() }
+        val snapshot = ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { if (status == ItemStatus.PROCESSING) markProcessing() }
         val snapshotId = itemSnapshotRepository.save(snapshot).getId()
         jdbcTemplate.update(
             "UPDATE item_snapshots SET created_at = ?, updated_at = ? WHERE id = ?",
@@ -171,7 +171,7 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
     // 이 테스트가 넘기는 threshold(now)에는 걸리도록 몇 초 전으로 둔다 — 배경 스케줄러와의 경합을 제거한다.
     private fun staleProcessing(attempt: Int): Pair<Long, Long> {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/slot-${UUID.randomUUID()}")))
-        val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }).getId()
+        val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }).getId()
         jdbcTemplate.update(
             "UPDATE item_snapshots SET attempt_count = ?, updated_at = ? WHERE id = ?",
             attempt,

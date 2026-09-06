@@ -50,7 +50,7 @@ class NotificationLiveAutoReadIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         val itemId = 8101L
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, name = "나이키")).getId()
-        wishRepository.save(Wish(userId, snapshotId))
+        wishRepository.save(Wish(userId, snapshotId, itemId))
         val emitter = SseEmitter()
         sseEmitterRegistry.register(userId, emitter)
         try {
@@ -71,7 +71,7 @@ class NotificationLiveAutoReadIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         val itemId = 8103L
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, name = "나이키")).getId()
-        wishRepository.save(Wish(userId, snapshotId))
+        wishRepository.save(Wish(userId, snapshotId, itemId))
         val emitter = SseEmitter()
         sseEmitterRegistry.register(userId, emitter)
         try {
@@ -93,7 +93,7 @@ class NotificationLiveAutoReadIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         val itemId = 8104L
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, name = "나이키")).getId()
-        wishRepository.save(Wish(userId, snapshotId))
+        wishRepository.save(Wish(userId, snapshotId, itemId))
         val deadEmitter = SseEmitter().apply { complete() }
         sseEmitterRegistry.register(userId, deadEmitter)
         try {
@@ -112,7 +112,7 @@ class NotificationLiveAutoReadIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         val itemId = 8102L
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, name = "나이키")).getId()
-        wishRepository.save(Wish(userId, snapshotId))
+        wishRepository.save(Wish(userId, snapshotId, itemId))
 
         notificationDispatcher.dispatch(ItemParsingCompleted(itemId, snapshotId))
 

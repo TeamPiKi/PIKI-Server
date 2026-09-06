@@ -41,6 +41,8 @@ class ItemRefreshCompletedHandler(
     ): Map<UUID, RecipientContext> {
         val contexts = recipientResolver.resolveRefreshContexts(event.snapshotId)
         // 방어: 수신자인데 좌표를 못 찾으면(그 사이 삭제 등) wishId 없이도 알림은 나간다.
-        return recipients.associateWith { userId -> contexts[userId] ?: RecipientContext(routing = NotificationRouting.Wish(null)) }
+        return recipients.associateWith { userId ->
+            contexts[userId] ?: RecipientContext(routing = NotificationRouting.Wish(null))
+        }
     }
 }
