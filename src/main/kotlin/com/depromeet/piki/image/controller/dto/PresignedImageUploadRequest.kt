@@ -5,13 +5,21 @@ import io.swagger.v3.oas.annotations.media.Schema
 
 // 이미지 등록 v2 presigned 발급 요청 — 올릴 이미지들의 content-type·바이트 수 목록(1~5개).
 // 개수·형식·크기 검증은 서버가 도메인 계약으로 하므로 Bean Validation 을 걸지 않는다.
+//
+// 과도기 호환: 구버전 클라는 contentTypes(문자열 목록)만 보낸다. images 가 없으면 contentTypes 를 크기 없는 목록으로
+// 읽는다. 클라가 전부 images 로 넘어오면 contentTypes 를 지우고 images 를 필수로 만든다(UploadSize 의 과도기 주석과 짝).
 @Schema(description = "presigned 업로드 URL 발급 요청")
 data class PresignedImageUploadRequest(
     @field:Schema(
-        description = "업로드할 이미지 목록 (1~5개)",
-        requiredMode = Schema.RequiredMode.REQUIRED,
+        description = "업로드할 이미지 목록 (1~5개). contentTypes 보다 우선한다.",
     )
-    val images: List<Image>,
+    val images: List<Image>? = null,
+    @field:Schema(
+        description = "(deprecated) 업로드할 각 이미지의 content-type 목록. images 가 없을 때만 읽으며, 크기 없이 발급한다.",
+        example = "[\"image/png\", \"image/jpeg\"]",
+        deprecated = true,
+    )
+    val contentTypes: List<String>? = null,
 ) {
     @Schema(description = "업로드할 이미지 한 장의 content-type 과 바이트 수")
     data class Image(
@@ -22,13 +30,17 @@ data class PresignedImageUploadRequest(
         )
         val contentType: String?,
         @field:Schema(
-            description = "이미지 파일의 바이트 수 (1 이상 5MB 이하). 서명에 묶여 PUT 시 Content-Length 와 같아야 한다.",
+            description =
+                "이미지 파일의 바이트 수 (1 이상 5MB 이하). 보내면 서명에 묶여 PUT 시 Content-Length 와 같아야 한다. " +
+                    "생략하면 크기 없이 발급한다(과도기, 이후 필수로 전환).",
             example = "1048576",
-            requiredMode = Schema.RequiredMode.REQUIRED,
         )
         val contentLength: Long?,
     )
 
     // 형식·크기 검증을 통과한 발급 입력. 지원하지 않는 형식(PRODUCTIMAGE-002/003)·크기 위반(UPLOAD-003/004)은 여기서 400 으로 끝난다.
-    fun toUploadFormats(): List<UploadFormat> = images.map { UploadFormat.of(it.contentType, it.contentLength) }
+    // 둘 다 없으면 빈 목록 — 개수 검증(1~5)이 400 으로 거른다.
+    fun toUploadFormats(): List<UploadFormat> =
+        images?.map { UploadFormat.of(it.contentType, it.contentLength) }
+            ?: contentTypes.orEmpty().map { UploadFormat.of(it, null) }
 }

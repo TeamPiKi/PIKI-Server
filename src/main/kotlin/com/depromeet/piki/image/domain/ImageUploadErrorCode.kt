@@ -9,7 +9,7 @@ import com.depromeet.piki.common.exception.ErrorCode
 //
 // 001·002 는 confirm 단계, 003·004 는 발급 단계의 계약 위반이다. 클라가 취할 행동이 갈려 code 를 나눈다:
 // 잘못된 key 는 업로드를 처음부터 다시, 아직 안 올라간 이미지는 업로드를 마친 뒤 confirm 재호출,
-// 크기 초과는 사용자에게 다른 이미지를 고르게, 크기 미상은 발급 요청을 다시 구성한다.
+// 크기 초과는 사용자에게 다른 이미지를 고르게, 크기 오류는 발급 요청을 다시 구성한다.
 enum class ImageUploadErrorCode(
     override val code: String,
     override val category: ErrorCategory,
@@ -24,6 +24,6 @@ enum class ImageUploadErrorCode(
     // 발급 요청의 contentLength 가 상한(UploadSize.MAX_BYTES)을 넘는다.
     TOO_LARGE("UPLOAD-003", ErrorCategory.INVALID_INPUT, "이미지는 5MB 까지 올릴 수 있어요."),
 
-    // 발급 요청의 contentLength 가 없거나 0 이하 — 크기를 알 수 없어 서명에 묶을 수 없다.
+    // 발급 요청의 contentLength 가 0 이하 — 크기로 성립하지 않아 서명에 묶을 수 없다(미지정은 과도기 동안 통과, UploadSize 참고).
     INVALID_SIZE("UPLOAD-004", ErrorCategory.INVALID_INPUT, "이미지 크기 정보가 올바르지 않아요. 업로드를 다시 시도해 주세요."),
 }

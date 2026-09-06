@@ -299,6 +299,28 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
+    fun `POST users me profile-image - contentLength 를 생략하면 크기 없이 발급된다 (과도기 호환)`() {
+        val mockMvc =
+            MockMvcBuilders
+                .webAppContextSetup(webApplicationContext)
+                .apply<DefaultMockMvcBuilder>(springSecurity())
+                .build()
+        val userId = UUID.randomUUID()
+        insertUser(userId, identityType = IdentityType.MEMBER)
+        val presignedBefore = stubImageStorage.presignedContentLengths.size
+
+        // 구버전 클라 호환 — 클라 전환이 끝나면 이 테스트는 400(UPLOAD-004) 으로 뒤집힌다.
+        mockMvc
+            .perform(
+                post("/api/v1/users/me/profile-image")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"contentType":"image/png"}""")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
+            ).andExpect(status().isOk)
+        assertEquals(listOf<Long?>(null), stubImageStorage.presignedContentLengths.drop(presignedBefore))
+    }
+
+    @Test
     fun `POST users me profile-image - contentType 이 비면 400 이 반환된다`() {
         val mockMvc =
             MockMvcBuilders

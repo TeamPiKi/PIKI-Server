@@ -239,7 +239,8 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         var tournamentId = 0L
         try {
             tournamentId = createTournament(mockMvc, ownerId)
-            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = UploadSize.MAX_BYTES + 1))
+            val body =
+                objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = UploadSize.MAX_BYTES + 1))
             mockMvc
                 .perform(
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")

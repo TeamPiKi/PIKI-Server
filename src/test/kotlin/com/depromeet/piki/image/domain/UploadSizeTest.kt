@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class UploadSizeTest {
     @ParameterizedTest
@@ -22,16 +23,20 @@ class UploadSizeTest {
 
     @ParameterizedTest
     @ValueSource(longs = [0L, -1L, Long.MIN_VALUE])
-    fun `0 이하는 크기를 알 수 없는 요청으로 거부된다`(contentLength: Long) {
+    fun `0 이하는 크기로 성립하지 않아 거부된다`(contentLength: Long) {
         val e = assertFailsWith<ImageUploadException> { UploadSize.of(contentLength) }
 
         assertEquals(ImageUploadErrorCode.INVALID_SIZE, e.errorCode)
     }
 
     @Test
-    fun `미지정도 크기를 알 수 없는 요청으로 거부된다`() {
-        val e = assertFailsWith<ImageUploadException> { UploadSize.of(null) }
+    fun `미지정은 과도기 동안 크기 없음(null)으로 통과한다`() {
+        assertNull(UploadSize.ofOrNull(null))
+    }
 
-        assertEquals(ImageUploadErrorCode.INVALID_SIZE, e.errorCode)
+    @Test
+    fun `ofOrNull 도 값이 있으면 같은 검증을 거친다`() {
+        assertEquals(7L, UploadSize.ofOrNull(7L)?.bytes)
+        assertFailsWith<ImageUploadException> { UploadSize.ofOrNull(0L) }
     }
 }
