@@ -9,7 +9,6 @@ fun presignImages(
     mapOf(
         "images" to
             contentTypes.map { contentType ->
-                // null 은 키 자체를 뺀다 — "필드 누락" 요청.
                 listOfNotNull(
                     contentType?.let { "contentType" to it },
                     contentLength?.let { "contentLength" to it },

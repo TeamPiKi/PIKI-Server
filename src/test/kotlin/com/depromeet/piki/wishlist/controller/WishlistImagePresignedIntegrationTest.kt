@@ -147,7 +147,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         insertMember(userId)
         val presignedBefore = stubImageStorage.presignedContentLengths.size
         try {
-            // 클라 전환이 끝나면 400(UPLOAD-004) 으로 뒤집는다.
             val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = null))
             mockMvc
                 .perform(

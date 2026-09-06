@@ -4,7 +4,6 @@ import com.depromeet.piki.image.domain.UploadFormat
 import io.swagger.v3.oas.annotations.media.Schema
 
 // 개수·형식·크기 검증은 서버가 도메인 계약으로 하므로 Bean Validation 을 걸지 않는다.
-// contentTypes 는 구버전 클라 호환용 — 클라 전환이 끝나면 지우고 images 를 필수로 만든다(UploadSize.ofOrNull 과 짝).
 @Schema(description = "presigned 업로드 URL 발급 요청")
 data class PresignedImageUploadRequest(
     @field:Schema(

@@ -1,7 +1,6 @@
 package com.depromeet.piki.image.domain
 
-// presigned 서명(Content-Length)에 묶는 업로드 바이트 수. 상한은 multipart 의 max-file-size(5MB)와 같다.
-// ofOrNull 은 과도기용 — contentLength 를 아직 안 보내는 구버전 클라를 크기 없이 통과시킨다. 클라 전환이 끝나면 지운다.
+// ofOrNull 과 요청 DTO 의 contentTypes 는 과도기용. 클라가 contentLength 를 전부 보내면 지운다.
 @JvmInline
 value class UploadSize private constructor(
     val bytes: Long,

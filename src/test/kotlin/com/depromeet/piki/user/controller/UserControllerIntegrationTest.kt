@@ -308,7 +308,6 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
         insertUser(userId, identityType = IdentityType.MEMBER)
         val presignedBefore = stubImageStorage.presignedContentLengths.size
 
-        // 클라 전환이 끝나면 400(UPLOAD-004) 으로 뒤집는다.
         mockMvc
             .perform(
                 post("/api/v1/users/me/profile-image")
