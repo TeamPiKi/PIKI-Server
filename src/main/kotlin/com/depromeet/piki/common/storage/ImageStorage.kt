@@ -12,7 +12,6 @@ interface ImageStorage {
     ): String
 
     // 클라이언트가 서버를 거치지 않고 S3 에 직접 PUT 업로드할 수 있는 presigned URL 을 발급한다(이미지 등록 v2).
-    // SDK 예외는 ImageStorageException(502)으로 변환한다.
     fun presignUpload(
         key: String,
         contentType: String,
