@@ -90,4 +90,4 @@ ApiResponse(responseCode = "400", description = "잘못된 요청 (URL 이 비�
 - **Security 필터 401/403** (detail 없는 `fail(category)`)은 기존 `unauthorized()`·`forbidden()` 헬퍼를 쓴다.
 - example detail 이 실제 응답과 맞는지 불확실하면(특히 Bean Validation 의 `"필드명:"` 접두사 형식) **추측하지 말고 통합테스트의 `$.detail` 단언으로 실측해 고정**한다. 같은 단언이 회귀 방지 contract 도 된다.
 
-응답 detail 의 보안·노이즈, 디버깅 컨텍스트 보존 트레이드오프는 예외 message 정의(`CLAUDE.md` 의 `## 도메인 예외 정책` 의 "메시지 톤: 응답 detail 은 전부 사용자 대면, 개발자 구분은 로그로")에서 이미 책임진다. example 은 그 message 를 그대로 끌어다 쓸 뿐이므로 별도 노출 위험을 만들지 않는다.
+응답 detail 의 보안·노이즈, 디버깅 컨텍스트 보존 트레이드오프는 예외 message 정의(`.claude/rules/domain-exception.md` 의 "메시지 톤: 응답 detail 은 전부 사용자 대면, 개발자 구분은 로그로")에서 이미 책임진다. example 은 그 message 를 그대로 끌어다 쓸 뿐이므로 별도 노출 위험을 만들지 않는다.
