@@ -17,15 +17,17 @@ import com.depromeet.piki.product.service.ProductSnapshot
 import com.depromeet.piki.product.service.ProductSnapshotException
 import com.depromeet.piki.product.service.remote.ProductExtractorException
 import com.depromeet.piki.support.IntegrationTestSupport
-import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubImageSnapshotExtractor
+import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubProductLinkExtractor
+import com.depromeet.piki.support.presignImages
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.user.domain.IdentityType
 import io.micrometer.core.instrument.MeterRegistry
 import org.awaitility.Awaitility.await
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
@@ -37,7 +39,6 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.DefaultMockMvcBuilder
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
-import org.slf4j.LoggerFactory
 import org.springframework.web.context.WebApplicationContext
 import tools.jackson.databind.ObjectMapper
 import java.time.Duration
@@ -349,7 +350,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
                         post("/api/v1/wishlists/images/presigned")
                             .contentType(MediaType.APPLICATION_JSON)
                             .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
-                            .content(objectMapper.writeValueAsString(mapOf("contentTypes" to List(5) { "image/png" }))),
+                            .content(objectMapper.writeValueAsString(presignImages(List(5) { "image/png" }))),
                     ).andExpect(status().isOk)
                     .andReturn()
                     .response
@@ -727,7 +728,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
                     post("/api/v1/wishlists/images/presigned")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
-                        .content(objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png")))),
+                        .content(objectMapper.writeValueAsString(presignImages(listOf("image/png")))),
                 ).andExpect(status().isOk)
                 .andReturn()
                 .response

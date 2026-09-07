@@ -8,6 +8,7 @@ import com.depromeet.piki.item.repository.ItemJpaRepository
 import com.depromeet.piki.item.repository.ItemSnapshotJpaRepository
 import com.depromeet.piki.support.IntegrationTestSupport
 import com.depromeet.piki.support.StubImageParsingWorker
+import com.depromeet.piki.support.presignImages
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.tournament.domain.TournamentItem
 import com.depromeet.piki.tournament.repository.TournamentItemJpaRepository
@@ -193,7 +194,7 @@ class TournamentItemImageAddConcurrencyIntegrationTest : IntegrationTestSupport(
                 post("/api/v1/tournaments/$tournamentId/items/images/presigned")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.AUTHORIZATION, auth)
-                    .content(objectMapper.writeValueAsString(mapOf("contentTypes" to List(count) { "image/jpeg" }))),
+                    .content(objectMapper.writeValueAsString(presignImages(List(count) { "image/jpeg" }))),
             ).andReturn()
             .response
             .getContentAsString(Charsets.UTF_8)

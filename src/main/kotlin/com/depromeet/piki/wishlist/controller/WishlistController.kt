@@ -58,7 +58,7 @@ class WishlistController(
         @AuthenticationPrincipal userId: UUID,
         @RequestBody request: PresignedImageUploadRequest,
     ): ApiResponseBody<PresignedImageUploadResponse> {
-        val uploads = wishlistService.presignImageUploads(contentTypes = request.contentTypes, userId = userId)
+        val uploads = wishlistService.presignImageUploads(formats = request.toUploadFormats(), userId = userId)
         return ApiResponseBody.ok(PresignedImageUploadResponse.from(uploads))
     }
 

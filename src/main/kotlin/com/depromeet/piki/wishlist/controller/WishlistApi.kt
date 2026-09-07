@@ -649,9 +649,11 @@ interface WishlistApi {
     @Operation(
         summary = "위시리스트 이미지 등록 v2 - presigned 업로드 URL 발급",
         description = """
-            이미지 등록의 1단계. 올릴 이미지들의 content-type(1~5개)을 받아, 클라가 S3 에 직접 PUT 할 presigned URL 을 발급한다.
+            이미지 등록의 1단계. 올릴 이미지들의 content-type·바이트 수(1~5개)를 받아, 클라가 S3 에 직접 PUT 할 presigned URL 을 발급한다.
             원본 바이트가 서버를 경유하지 않아 서버 대역·메모리를 쓰지 않는다.
-            클라는 각 uploadUrl 로 응답의 contentType 을 Content-Type 헤더에 실어 PUT 한 뒤, imageKey 들을 2단계(/images/confirm)로 되돌려준다.
+            content-type 과 contentLength 는 서명에 묶인다 — 클라는 각 uploadUrl 로 같은 Content-Type·Content-Length 로만 PUT 할 수 있고(S3 가 강제),
+            contentLength 를 생략하면 크기 없이 발급한다(과도기 — 구버전 contentTypes 형식도 같은 취급, 이후 필수로 전환).
+            imageKey 들을 2단계(/images/confirm)로 되돌려준다. 한 장의 상한은 5MB 다.
             발급 시점에는 Wish·Item 을 만들지 않는다(확정 단계에서 생성).
             확정이 오지 않은 업로드는 등록되지 않고 S3 lifecycle 이 지운다.
         """,
@@ -671,8 +673,9 @@ interface WishlistApi {
             ApiResponse(
                 responseCode = "400",
                 description =
-                    "잘못된 요청 (content-type 개수 1~5 위반 · content-type 미지정 — code: PRODUCTIMAGE-002 · " +
-                        "지원하지 않는 이미지 형식(png/jpeg/webp/heic/heif만 허용) — code: PRODUCTIMAGE-003)",
+                    "잘못된 요청 (이미지 개수 1~5 위반 · content-type 미지정 — code: PRODUCTIMAGE-002 · " +
+                        "지원하지 않는 이미지 형식(png/jpeg/webp/heic/heif만 허용) — code: PRODUCTIMAGE-003 · " +
+                        "contentLength 5MB 초과 — code: UPLOAD-003 · contentLength 0 이하 — code: UPLOAD-004)",
                 content = [
                     Content(
                         mediaType = MediaType.APPLICATION_JSON_VALUE,

@@ -1,6 +1,5 @@
 package com.depromeet.piki.common.ratelimit
 
-import com.depromeet.piki.item.domain.ItemErrorCode
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -8,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
 import com.depromeet.piki.common.exception.CommonErrorCode
 import com.depromeet.piki.item.domain.Item
+import com.depromeet.piki.item.domain.ItemErrorCode
 import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.item.repository.ItemJpaRepository
@@ -16,6 +16,7 @@ import com.depromeet.piki.support.IntegrationTestSupport
 import com.depromeet.piki.support.StubImageParsingWorker
 import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubItemParsingWorker
+import com.depromeet.piki.support.presignImages
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.tournament.service.TournamentErrorCode
 import com.depromeet.piki.user.domain.IdentityType
@@ -210,7 +211,7 @@ class ItemQuotaIntegrationTest : IntegrationTestSupport() {
                 post("/api/v1/wishlists/images/presigned")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentTypes":["image/png","image/png","image/png"]}"""),
+                    .content(objectMapper.writeValueAsString(presignImages(List(3) { "image/png" }))),
             ).andExpect(status().isOk)
 
         // 요청 1건이 아니라 3 이 빠져야 한다 — 장마다 추출이 따로 돌기 때문이다.
@@ -233,7 +234,7 @@ class ItemQuotaIntegrationTest : IntegrationTestSupport() {
                         post("/api/v1/wishlists/images/presigned")
                             .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("""{"contentTypes":["image/png","image/jpeg"]}"""),
+                            .content(objectMapper.writeValueAsString(presignImages(listOf("image/png", "image/jpeg")))),
                     ).andExpect(status().isOk)
                     .andReturn()
                     .response
@@ -272,7 +273,7 @@ class ItemQuotaIntegrationTest : IntegrationTestSupport() {
                 post("/api/v1/wishlists/images/presigned")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentTypes":["image/png","image/png","image/png","image/png","image/png"]}"""),
+                    .content(objectMapper.writeValueAsString(presignImages(List(5) { "image/png" }))),
             ).andExpect(status().isOk)
 
         // 한도를 넘겨 잔액이 음수가 됐다.
