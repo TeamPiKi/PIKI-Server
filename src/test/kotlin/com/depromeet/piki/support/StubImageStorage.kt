@@ -43,16 +43,21 @@ class StubImageStorage : ImageStorage {
     // 서명 계산은 부수효과 없는 순수 변환이라 default 를 고정 URL 로 둔다(upload 와 같은 결). 발급 실패(502)
     // 시나리오만 presignBehavior 를 throw 람다로 교체한다. 발급 검증은 presignedKeys 를 본다.
     val presignedKeys = mutableListOf<String>()
-    val defaultPresignBehavior: (String, String, Duration) -> String = { key, _, _ -> "$BASE_URL/$key?X-Amz-Signature=stub" }
-    var presignBehavior: (String, String, Duration) -> String = defaultPresignBehavior
+    val defaultPresignBehavior: (String, String, Long?, Duration) -> String =
+        { key, _, _, _ -> "$BASE_URL/$key?X-Amz-Signature=stub" }
+    var presignBehavior: (String, String, Long?, Duration) -> String = defaultPresignBehavior
+
+    val presignedContentLengths = mutableListOf<Long?>()
 
     override fun presignUpload(
         key: String,
         contentType: String,
+        contentLength: Long?,
         expiry: Duration,
     ): String {
         presignedKeys.add(key)
-        return presignBehavior(key, contentType, expiry)
+        presignedContentLengths.add(contentLength)
+        return presignBehavior(key, contentType, contentLength, expiry)
     }
 
     // 객체 존재 확인 stub — v2 confirm 이 "클라가 실제로 올렸는지" HEAD 로 검증하는 경로를 재현한다.
