@@ -4,6 +4,7 @@ import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.tournament.domain.RoundBracket
 import com.depromeet.piki.tournament.domain.Tournament
@@ -204,7 +205,7 @@ class TournamentService(
         // "채운 뒤 담아 주세요" 가 나가고, 같은 아이템으로 시작은 되는 어긋남이 생긴다.
         // 박제는 포인터 그대로다 — 겨루는 값 확정은 start 의 몫이고(#858), 대기실 표시도 파생으로 움직인다.
         requireEntryEligible(
-            displayOf(activeSnapshotByItemId.values),
+            displayOf(activeSnapshotByItemId.values.map { DisplayCard(it, owner = userId) }),
             TournamentException::itemIncomplete,
             TournamentException::itemNotReady,
         )
@@ -263,7 +264,10 @@ class TournamentService(
         // start = "겨루는 값 확정" 순간(#857). 대기실까지는 표시값이 파생(최신 기계 READY 우선)으로 움직이므로,
         // 그 파생 결과를 여기서 포인터에 박제(repin)해 "겨룬 값 = 진행·완료 화면 값 = 히스토리 값" 을 고정한다.
         // 시작 후 화면·히스토리는 파생 없이 포인터를 그대로 읽는다(당시를 보는 것이 확정).
-        val displayById = itemDisplayService.resolveDisplay(snapshotById.values)
+        val displayById =
+            itemDisplayService.resolveDisplay(
+                tournamentItems.map { DisplayCard(it.requireSnapshot(snapshotById), owner = it.userId) },
+            )
         val pinnedByTournamentItemId =
             tournamentItems.associate { tournamentItem ->
                 val display = displayById[tournamentItem.snapshotId] ?: tournamentItem.requireSnapshot(snapshotById)
@@ -555,7 +559,12 @@ class TournamentService(
         // 표시값: 대기실(PENDING)은 파생(#857), 시작 후는 start 가 박제한 포인터 그대로(겨룬 값 고정).
         // sourceUrl(상품 링크)은 그 snapshot 의 item(정체성)에서 읽는다.
         val pointer = tournamentItem.requireSnapshot(snapshotsOf(listOf(tournamentItem)))
-        val snapshot = if (tournament.isPending()) itemDisplayService.resolveDisplay(pointer) else pointer
+        val snapshot =
+            if (tournament.isPending()) {
+                itemDisplayService.resolveDisplay(pointer, owner = tournamentItem.userId)
+            } else {
+                pointer
+            }
         val item = itemRepository.findById(snapshot.itemId)
             ?: throw TournamentException.notFoundTournamentItem()
         // 이 상품이 요청자 본인의 위시에 담겨 있으면 그 위시의 개인 메모를 함께 내린다(#906). 조회를 요청자
@@ -1356,10 +1365,10 @@ class TournamentService(
         if (snapshots.any { !it.isReady() }) throw notReady()
     }
 
-    /** 포인터 묶음을 카드에 뜨는 값으로 바꾼다. 파생 대상이 없는 포인터는 자기 자신이 표시값이다. */
-    private fun displayOf(pointers: Collection<ItemSnapshot>): Collection<ItemSnapshot> {
-        val displayById = itemDisplayService.resolveDisplay(pointers)
-        return pointers.map { displayById[it.getId()] ?: it }
+    /** 카드 묶음을 카드에 뜨는 값으로 바꾼다. 파생 대상이 없는 포인터는 자기 자신이 표시값이다. */
+    private fun displayOf(cards: Collection<DisplayCard>): Collection<ItemSnapshot> {
+        val displayById = itemDisplayService.resolveDisplay(cards)
+        return cards.map { displayById[it.pointer.getId()] ?: it.pointer }
     }
 
     // tournament_item 들이 고정한 snapshot 을 한 번에 조회해 id→snapshot 맵으로. 표시값 조회의 메모리 조인 재료다.
@@ -1372,7 +1381,11 @@ class TournamentService(
     // requireSnapshot(포인터 id 조회)을 쓰는 기존 조립 코드가 무수정으로 표시 버전을 읽게 된다.
     private fun displayedSnapshotsOf(tournamentItems: Collection<TournamentItem>): Map<Long, ItemSnapshot> {
         val pointers = snapshotsOf(tournamentItems)
-        val displayById = itemDisplayService.resolveDisplay(pointers.values)
+        // 카드 주인은 출전시킨 사람 — 그 사람의 맥락(수기·진행 중)만 그 카드에 보인다.
+        val displayById =
+            itemDisplayService.resolveDisplay(
+                tournamentItems.map { DisplayCard(it.requireSnapshot(pointers), owner = it.userId) },
+            )
         return pointers.mapValues { (pointerId, pointer) -> displayById[pointerId] ?: pointer }
     }
 

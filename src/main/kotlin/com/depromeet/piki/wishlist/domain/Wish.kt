@@ -13,7 +13,14 @@ class Wish(
     @Column(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
     val userId: UUID,
     snapshotId: Long,
+    itemId: Long,
 ) : LongBaseEntity() {
+    // 상품 정체성 참조(#1051). 화면값은 이 상품의 버전들에서 계산하므로 위시는 "어느 상품인가" 만 알면 된다.
+    // 전환 1단계라 컬럼은 nullable(옛 컨테이너가 안 쓰는 창)이고 읽기는 아직 snapshotId 경로다 — 쓰기만 연결한다.
+    // 후속 단계에서 NOT NULL·읽기 전환·snapshot_id 제거를 한다.
+    @Column(name = "item_id")
+    val itemId: Long? = itemId
+
     // 활성 snapshot(현재 보여줄 버전) 참조. raw Long(FK 없음). item 정체성은 snapshot.itemId 단일 출처 —
     // wish 는 itemId 를 따로 들지 않고 snapshot 으로 도달한다. setter 직접 노출 대신 swapSnapshot 명령으로만 바꾼다
     // (ItemSnapshot 추출 필드와 같은 캡슐화). 5단계 갱신(수동 새로고침)이 이 포인터를 새 버전으로 스왑한다.
@@ -24,6 +31,7 @@ class Wish(
     // 엔티티 불변식 — 0·음수는 존재할 수 없는 참조다. 정상 흐름에선 닿지 않고, 닿으면 코드 버그.
     init {
         require(snapshotId > 0) { "snapshotId 는 양수여야 한다: $snapshotId" }
+        require(itemId > 0) { "itemId 는 양수여야 한다: $itemId" }
     }
 
     // 개인 메모 — item·snapshot 은 여러 사용자가 공유하므로 개인 기록은 user 소유인 wish 행이 든다.

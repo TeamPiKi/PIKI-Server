@@ -129,8 +129,8 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
         try {
             // PROCESSING 위시 시딩 — 디스패처는 PENDING 만 집고 recover 는 stale(60초)만 보므로 방금 만든 행은 PROCESSING 고정.
             val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/inprogress")))
-            val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
-            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId()))
+            val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId).apply { markProcessing() })
+            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
             val itemId = item.getId()
             val before = countSnapshots(itemId)
 
@@ -168,7 +168,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                         extractedAt = LocalDateTime.now(),
                     ),
                 )
-            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId()))
+            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
 
             mockMvc
                 .perform(
@@ -378,8 +378,8 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
         insertMember(userId)
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/two-versions")))
         try {
-            val v1 = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
-            val v2 = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+            val v1 = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId).apply { markProcessing() })
+            val v2 = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId).apply { markProcessing() })
 
             // v1(더 낮은 id, 최신 아님)을 지정해 전이 — findLatest 였다면 v2 가 전이됐을 것이다.
             // 집기는 attempt 를 안 올리므로 워커의 소유권 획득(0 -> 1)을 재현한 뒤 그 토큰으로 전이한다.
@@ -412,13 +412,13 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
         try {
             val failed =
                 itemSnapshotRepository.save(
-                    ItemSnapshot.pending(item.getId()).apply {
+                    ItemSnapshot.pending(item.getId(), requestedBy = userId).apply {
                         markProcessing()
                         markFailed()
                     },
                 )
-            val newer = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
-            val wish = wishRepository.save(Wish(userId, failed.getId()))
+            val newer = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId).apply { markProcessing() })
+            val wish = wishRepository.save(Wish(userId, failed.getId(), failed.itemId))
 
             val result =
                 wishPersistenceService.manualEdit(
@@ -459,7 +459,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
     ): Triple<Wish, Item, ItemSnapshot> {
         val item = itemRepository.save(Item(ProductLink.parse(url)))
         val failed = itemSnapshotRepository.save(ItemSnapshot(itemId = item.getId(), status = ItemStatus.FAILED))
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = failed.getId()))
+        val wish = wishRepository.save(Wish(userId = userId, snapshotId = failed.getId(), itemId = failed.itemId))
         return Triple(wish, item, failed)
     }
 
@@ -481,7 +481,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                     extractedAt = LocalDateTime.now(),
                 ),
             )
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId()))
+        val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
         return Triple(wish.getId(), item.getId(), snapshot.getId())
     }
 

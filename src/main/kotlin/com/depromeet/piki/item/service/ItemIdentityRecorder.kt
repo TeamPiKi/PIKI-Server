@@ -1,6 +1,7 @@
 package com.depromeet.piki.item.service
 
 import com.depromeet.piki.item.domain.Item
+import com.depromeet.piki.item.event.ItemMerged
 import com.depromeet.piki.item.repository.ItemLinkRepository
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
@@ -8,6 +9,7 @@ import com.depromeet.piki.product.domain.CanonicalLink
 import com.depromeet.piki.product.domain.ProductLink
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -25,6 +27,7 @@ class ItemIdentityRecorder(
     private val itemSnapshotRepository: ItemSnapshotRepository,
     private val meterRegistry: MeterRegistry,
     private val transactionTemplate: TransactionTemplate,
+    private val eventPublisher: ApplicationEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -81,8 +84,9 @@ class ItemIdentityRecorder(
         }
     }
 
-    // 병합(#825 결정 3b) — snapshot 재부모화 한 문장이 몸통이다: wish·tournament_item 은 snapshot 만 참조하므로
-    // (4b) 부모 포인터가 바뀌면 모든 참조가 자동 추종한다. 별칭도 승자에게 이관하고 빈 임시 item 은 soft delete.
+    // 병합(#825 결정 3b) — snapshot 재부모화가 몸통이다: tournament_item 은 snapshot 만 참조하므로 부모 포인터가
+    // 바뀌면 자동 추종하고, item 을 직접 참조하는 위시(#1051)는 ItemMerged 이벤트로 같은 트랜잭션에서 따라간다.
+    // 별칭도 승자에게 이관하고 빈 임시 item 은 soft delete.
     // 이벤트(SSE·알림)는 snapshotId 라우팅(#576)이라 병합과 무관하게 정확하다.
     //
     // item 행 락을 선점하지 않는 이유: 병합 중 등록이 loser 에 끼워 넣은 새 PENDING 은 reparentAll 시점에
@@ -102,6 +106,8 @@ class ItemIdentityRecorder(
             itemSnapshotRepository.reparentAll(fromItemId = loserId, toItemId = winnerId)
             itemLinkRepository.reparentAll(fromItemId = loserId, toItemId = winnerId)
             itemRepository.softDeleteById(loserId)
+            // item 을 직접 참조하는 상위 도메인(위시의 item_id, #1051)이 같은 트랜잭션(BEFORE_COMMIT)에서 참조를 따라간다.
+            eventPublisher.publishEvent(ItemMerged(loserItemId = loserId, winnerItemId = winnerId))
         }
         log.info("canonical 병합 완료 loser={} winner={} url={}", loserId, winnerId, parsed.safeLogString())
         ItemIdentityMetrics.record(meterRegistry, ItemIdentityMetrics.CANONICAL_MERGED)

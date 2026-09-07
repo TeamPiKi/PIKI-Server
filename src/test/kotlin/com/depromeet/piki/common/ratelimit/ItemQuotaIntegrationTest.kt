@@ -609,7 +609,7 @@ class ItemQuotaIntegrationTest : IntegrationTestSupport() {
                     extractedAt = LocalDateTime.now(),
                 ),
             )
-        wishJpaRepository.save(Wish(userId = userId, snapshotId = snapshot.getId()))
+        wishJpaRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
         return item.getId()
     }
 

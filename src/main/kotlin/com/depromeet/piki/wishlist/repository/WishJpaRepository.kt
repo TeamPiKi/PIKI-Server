@@ -87,6 +87,18 @@ interface WishJpaRepository : JpaRepository<Wish, Long> {
         @Param("userId") userId: UUID,
     ): List<Wish>
 
+    // 정체성 병합 추종(#1051) — 진 item 을 가리키던 위시를 이긴 item 으로. 삭제된 위시도 함께 옮긴다(참조 정합).
+    // native bulk 라 auditing 을 우회해 updated_at 을 직접 갱신한다(item_snapshots.reparentAll 과 같은 결).
+    @Modifying
+    @Query(
+        value = "UPDATE wishes SET item_id = :toItemId, updated_at = NOW(6) WHERE item_id = :fromItemId",
+        nativeQuery = true,
+    )
+    fun reparentItem(
+        @Param("fromItemId") fromItemId: Long,
+        @Param("toItemId") toItemId: Long,
+    ): Int
+
     // 탈퇴 cascade — 그 유저의 위시를 영구 하드삭제. 위시는 다른 데이터가 참조하지 않아 즉시 파기 가능. 멱등(없으면 0건).
     @Modifying
     @Query("DELETE FROM Wish w WHERE w.userId = :userId")

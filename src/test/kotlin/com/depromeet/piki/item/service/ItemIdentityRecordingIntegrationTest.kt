@@ -1,14 +1,19 @@
 package com.depromeet.piki.item.service
 
 import com.depromeet.piki.item.domain.Item
+import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.repository.ItemJpaRepository
 import com.depromeet.piki.item.repository.ItemLinkJpaRepository
 import com.depromeet.piki.item.repository.ItemLinkRepository
 import com.depromeet.piki.item.repository.ItemRepository
+import com.depromeet.piki.item.repository.ItemSnapshotJpaRepository
 import com.depromeet.piki.product.domain.CanonicalLink
 import com.depromeet.piki.product.domain.ProductLink
 import com.depromeet.piki.support.IntegrationTestSupport
+import com.depromeet.piki.wishlist.domain.Wish
+import com.depromeet.piki.wishlist.repository.WishJpaRepository
 import org.springframework.beans.factory.annotation.Autowired
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -38,6 +43,12 @@ class ItemIdentityRecordingIntegrationTest : IntegrationTestSupport() {
 
     @Autowired
     private lateinit var itemLinkJpaRepository: ItemLinkJpaRepository
+
+    @Autowired
+    private lateinit var itemSnapshotJpaRepository: ItemSnapshotJpaRepository
+
+    @Autowired
+    private lateinit var wishJpaRepository: WishJpaRepository
 
     private fun newItem(url: String): Item = itemRepository.save(Item(link = ProductLink.parse(url)))
 
@@ -141,6 +152,30 @@ class ItemIdentityRecordingIntegrationTest : IntegrationTestSupport() {
             // 귀결점 별칭은 먼저 확정한 쪽 소속 그대로다.
             assertEquals(owner.getId(), itemLinkRepository.findByUrlHash(expectedHash)?.itemId)
         } finally {
+            cleanup(listOf(owner.getId(), latecomer.getId()))
+        }
+    }
+
+    @Test
+    fun `병합되면 진 item 을 가리키던 위시의 item_id 가 이긴 item 으로 따라간다`() {
+        // 위시는 item 을 직접 참조하므로(#1051) 버전 재부모화만으로는 참조가 안 따라간다 — 병합 트랜잭션 안에서
+        // ItemMerged 를 위시가 받아 옮긴다. 이게 빠지면 2단계(item_id 읽기 전환)에서 위시가 soft delete 된 item 을 가리킨다.
+        val owner = newItem("https://musinsa.onelink.me/PvkC/idrec0010")
+        val latecomer = newItem("https://musinsa.onelink.me/PvkC/idrec0011")
+        val finalUrl = "https://www.musinsa.com/products/1000010"
+        val userId = UUID.randomUUID()
+        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(latecomer.getId(), requestedBy = userId))
+        val wish =
+            wishJpaRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = latecomer.getId()))
+        try {
+            itemIdentityRecorder.recordParsingIdentity(owner.getId(), finalUrl)
+            itemIdentityRecorder.recordParsingIdentity(latecomer.getId(), finalUrl)
+
+            assertEquals(owner.getId(), wishJpaRepository.findById(wish.getId()).orElseThrow().itemId)
+            assertEquals(owner.getId(), itemSnapshotJpaRepository.findById(snapshot.getId()).orElseThrow().itemId)
+        } finally {
+            wishJpaRepository.deleteById(wish.getId())
+            itemSnapshotJpaRepository.deleteById(snapshot.getId())
             cleanup(listOf(owner.getId(), latecomer.getId()))
         }
     }

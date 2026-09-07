@@ -20,8 +20,11 @@ class ItemSnapshotRepositoryImpl(
 
     override fun findLatestMachineReadyByItemId(itemId: Long): ItemSnapshot? = itemSnapshotJpaRepository.findLatestMachineReadyByItemId(itemId)
 
-    override fun findLatestMachineReadyByItemIds(itemIds: Collection<Long>): List<ItemSnapshot> =
-        itemIds.takeIf { it.isNotEmpty() }?.let { itemSnapshotJpaRepository.findLatestMachineReadyByItemIds(it) }.orEmpty()
+    override fun findAllByItemIds(itemIds: Collection<Long>): List<ItemSnapshot> =
+        itemIds
+            .takeIf { it.isNotEmpty() }
+            ?.let { itemSnapshotJpaRepository.findByItemIdInAndDeletedAtIsNullOrderByIdAsc(it) }
+            .orEmpty()
 
     override fun reparentAll(
         fromItemId: Long,

@@ -419,7 +419,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
             ProductSnapshot(link = it, name = "되살아난 상품", price = 1_000, currency = "KRW", imageUrl = "https://img.example.com/a.png")
         }
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/revive")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() })
         val itemId = item.getId()
         try {
             // 이 행의 updated_at 만 과거로 밀어 stale 로 만든다. 현실적 threshold(스케줄러의 now-60초)라
@@ -447,7 +447,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
     fun `재시도 상한에 도달한 stale PROCESSING 은 recover 가 FAILED 로 종결한다`() {
         // 이미 상한(2회)까지 **실행**된 채 stale — 더 되살리지 않고 종결한다 (무한 재큐잉 방지).
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/exhausted")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() })
         val itemId = item.getId()
         // 종결 구조화 로그(#902)는 알림 룰·대시보드가 소비하는 계약이라 라인 모양까지 여기서 고정한다.
         val terminalLogs = ListAppender<ILoggingEvent>().apply { start() }
@@ -490,7 +490,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
             ProductSnapshot(link = null, name = "되살아난 이미지", price = 2_000, currency = "KRW", imageUrl = "https://img.example.com/revive.png")
         }
         val item = itemRepository.save(Item(sourceImageKey = "items/raw/${UUID.randomUUID()}.png"))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() })
         val itemId = item.getId()
         try {
             jdbcTemplate.update(
@@ -516,7 +516,7 @@ class WishlistRegisterAsyncIntegrationTest : IntegrationTestSupport() {
     fun `link·imageKey 둘 다 없는 orphan stale PROCESSING 은 recover 가 FAILED 로 종결한다`() {
         // 정상 흐름엔 없는 "입력 없는 행"(영속화 경로가 깨진 신호) — 되살릴 입력이 없으므로 attempt 와 무관하게 종결한다.
         val item = itemRepository.save(Item(link = null))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() })
         val itemId = item.getId()
         // 종결 구조화 로그(#902) — url 없는(입력 부재) 종결도 같은 계약의 라인을 남긴다.
         val terminalLogs = ListAppender<ILoggingEvent>().apply { start() }

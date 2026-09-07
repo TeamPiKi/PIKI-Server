@@ -189,7 +189,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
     @Test
     fun `토너먼트 아이템 삭제 변수 itemName 은 상품명이 아직 없으면 fallback 이다`() {
         // 파싱 전(PROCESSING) 아이템을 지운 경우 — snapshot.name 이 null 이라 fallback 문구로 채운다.
-        val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(7203L).apply { markProcessing() }).getId()
+        val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(7203L, requestedBy = UUID.randomUUID()).apply { markProcessing() }).getId()
 
         val variables =
             itemDeletedHandler.resolveActorContext(
@@ -334,9 +334,9 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val owner1 = UUID.randomUUID()
         val owner2 = UUID.randomUUID()
         val otherVersionOwner = UUID.randomUUID()
-        wishRepository.save(Wish(owner1, sharedVersion))
-        wishRepository.save(Wish(owner2, sharedVersion))
-        wishRepository.save(Wish(otherVersionOwner, otherVersion))
+        wishRepository.save(Wish(owner1, sharedVersion, itemId))
+        wishRepository.save(Wish(owner2, sharedVersion, itemId))
+        wishRepository.save(Wish(otherVersionOwner, otherVersion, itemId))
 
         val recipients = parsingCompletedHandler.resolveRecipients(ItemParsingCompleted(itemId, sharedVersion))
 
@@ -368,7 +368,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val otherParticipant = UUID.randomUUID()
         // 공유(#825)의 세계 — 위시와 토너먼트 출전이 같은 버전을 가리킨다.
         val snapshotId = snapshotIdFor(itemId)
-        wishRepository.save(Wish(wishOwner, snapshotId))
+        wishRepository.save(Wish(wishOwner, snapshotId, itemId))
         listOf(adder, otherParticipant).forEach { tournamentUserRepository.save(TournamentUser(tournamentId, it)) }
         tournamentItemRepository.saveAll(listOf(TournamentItem(tournamentId, adder, snapshotId)))
 
@@ -389,7 +389,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 2004L
         val owner = UUID.randomUUID()
         val snapshotId = snapshotIdFor(itemId)
-        wishRepository.save(Wish(owner, snapshotId))
+        wishRepository.save(Wish(owner, snapshotId, itemId))
 
         val recipients = parsingFailedHandler.resolveRecipients(ItemParsingFailed(itemId, snapshotId))
 
@@ -401,7 +401,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 3001L
         val owner = UUID.randomUUID()
         val snapshotId = snapshotIdFor(itemId)
-        val wishId = wishRepository.save(Wish(owner, snapshotId)).getId()
+        val wishId = wishRepository.save(Wish(owner, snapshotId, itemId)).getId()
 
         val contexts = parsingCompletedHandler.resolveRecipientContexts(ItemParsingCompleted(itemId, snapshotId), setOf(owner))
 
@@ -435,7 +435,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val wishOwner = UUID.randomUUID()
         val adder = UUID.randomUUID()
         val snapshotId = snapshotIdFor(itemId)
-        val wishId = wishRepository.save(Wish(wishOwner, snapshotId)).getId()
+        val wishId = wishRepository.save(Wish(wishOwner, snapshotId, itemId)).getId()
         val tournamentItemId =
             tournamentItemRepository.saveAll(listOf(TournamentItem(tournamentId, adder, snapshotId))).first().getId()
 
@@ -460,7 +460,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val tournamentId = 1103L
         val user = UUID.randomUUID()
         val snapshotId = snapshotIdFor(itemId)
-        val wishId = wishRepository.save(Wish(user, snapshotId)).getId()
+        val wishId = wishRepository.save(Wish(user, snapshotId, itemId)).getId()
         tournamentItemRepository.saveAll(listOf(TournamentItem(tournamentId, user, snapshotId)))
 
         val contexts = parsingCompletedHandler.resolveRecipientContexts(ItemParsingCompleted(itemId, snapshotId), setOf(user))
@@ -475,7 +475,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val wishOwner = UUID.randomUUID()
         val adder = UUID.randomUUID()
         val snapshotId = snapshotIdFor(itemId)
-        val wishId = wishRepository.save(Wish(wishOwner, snapshotId)).getId()
+        val wishId = wishRepository.save(Wish(wishOwner, snapshotId, itemId)).getId()
         val tournamentItemId =
             tournamentItemRepository.saveAll(listOf(TournamentItem(tournamentId, adder, snapshotId))).first().getId()
 
@@ -497,7 +497,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val wishOwner = UUID.randomUUID()
         val adder = UUID.randomUUID()
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, name = "나이키")).getId()
-        val wishId = wishRepository.save(Wish(wishOwner, snapshotId)).getId()
+        val wishId = wishRepository.save(Wish(wishOwner, snapshotId, itemId)).getId()
         val tournamentItemId =
             tournamentItemRepository.saveAll(listOf(TournamentItem(tournamentId, adder, snapshotId))).first().getId()
 
@@ -524,9 +524,9 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val failedOwner = UUID.randomUUID()
         val incompleteOwner = UUID.randomUUID()
         val waitingOwner = UUID.randomUUID()
-        wishRepository.save(Wish(failedOwner, snapshotWithStatus(itemId, ItemStatus.FAILED)))
-        wishRepository.save(Wish(incompleteOwner, snapshotWithStatus(itemId, ItemStatus.INCOMPLETE, name = "나이키")))
-        wishRepository.save(Wish(waitingOwner, succeeded))
+        wishRepository.save(Wish(failedOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId))
+        wishRepository.save(Wish(incompleteOwner, snapshotWithStatus(itemId, ItemStatus.INCOMPLETE, name = "나이키"), itemId))
+        wishRepository.save(Wish(waitingOwner, succeeded, itemId))
 
         val event = ItemParsingCompleted(itemId, succeeded)
 
@@ -544,8 +544,8 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         // 여기선 그 창에서도 상태 화이트리스트가 버티는지를 함께 못 박는다.
         val itemId = 4002L
         val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
-        wishRepository.save(Wish(UUID.randomUUID(), snapshotIdFor(itemId)))
-        wishRepository.save(Wish(UUID.randomUUID(), snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")))
+        wishRepository.save(Wish(UUID.randomUUID(), snapshotIdFor(itemId), itemId))
+        wishRepository.save(Wish(UUID.randomUUID(), snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키"), itemId))
 
         assertTrue(parsingRecoveredHandler.resolveRecipients(ItemParsingCompleted(itemId, succeeded)).isEmpty())
     }
@@ -557,7 +557,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val wishOwner = UUID.randomUUID()
         val adder = UUID.randomUUID()
         val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
-        val wishId = wishRepository.save(Wish(wishOwner, snapshotWithStatus(itemId, ItemStatus.FAILED))).getId()
+        val wishId = wishRepository.save(Wish(wishOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId)).getId()
         val tournamentItemId =
             tournamentItemRepository
                 .saveAll(listOf(TournamentItem(tournamentId, adder, snapshotWithStatus(itemId, ItemStatus.FAILED))))
@@ -579,8 +579,8 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val waitingOwner = UUID.randomUUID()
         val stuckOwner = UUID.randomUUID()
         val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
-        wishRepository.save(Wish(waitingOwner, succeeded))
-        wishRepository.save(Wish(stuckOwner, snapshotWithStatus(itemId, ItemStatus.FAILED)))
+        wishRepository.save(Wish(waitingOwner, succeeded, itemId))
+        wishRepository.save(Wish(stuckOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId))
 
         notificationDispatcher.dispatch(ItemParsingCompleted(itemId, succeeded))
 
@@ -601,10 +601,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 5001L
         val refresher = UUID.randomUUID()
         val registrant = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId)))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId), itemId))
         val newVersion = snapshotIdFor(itemId)
         refresherWish.swapSnapshot(newVersion)
-        wishRepository.save(Wish(registrant, newVersion))
+        wishRepository.save(Wish(registrant, newVersion, itemId))
 
         val event = ItemParsingCompleted(itemId, newVersion)
 
@@ -617,10 +617,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 5002L
         val refresher = UUID.randomUUID()
         val registrant = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId)))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId), itemId))
         val newVersion = snapshotIdFor(itemId)
         refresherWish.swapSnapshot(newVersion)
-        wishRepository.save(Wish(registrant, newVersion))
+        wishRepository.save(Wish(registrant, newVersion, itemId))
 
         val event = ItemParsingFailed(itemId, newVersion)
 
@@ -635,10 +635,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 5003L
         val refresher = UUID.randomUUID()
         val joiner = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId)))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId), itemId))
         val othersInProgress = snapshotIdFor(itemId)
         refresherWish.swapSnapshot(othersInProgress)
-        wishRepository.save(Wish(joiner, othersInProgress))
+        wishRepository.save(Wish(joiner, othersInProgress, itemId))
 
         val event = ItemParsingCompleted(itemId, othersInProgress)
 
@@ -663,7 +663,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
     fun `새로고침 라우팅 - 자기 wishId 를 실은 WISH 다`() {
         val itemId = 5005L
         val refresher = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId)))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId), itemId))
         val newVersion = snapshotIdFor(itemId)
         refresherWish.swapSnapshot(newVersion)
 
@@ -686,10 +686,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 5100L
         val refresher = UUID.randomUUID()
         val registrant = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId, name = "옛 이름")))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId, name = "옛 이름"), itemId))
         val newVersion = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
         refresherWish.swapSnapshot(newVersion)
-        val registrantWishId = wishRepository.save(Wish(registrant, newVersion)).getId()
+        val registrantWishId = wishRepository.save(Wish(registrant, newVersion, itemId)).getId()
 
         notificationDispatcher.dispatch(ItemParsingCompleted(itemId, newVersion))
 
@@ -709,10 +709,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 5101L
         val refresher = UUID.randomUUID()
         val registrant = UUID.randomUUID()
-        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId)))
+        val refresherWish = wishRepository.save(Wish(refresher, readyVersion(itemId), itemId))
         val newVersion = snapshotWithStatus(itemId, ItemStatus.FAILED)
         refresherWish.swapSnapshot(newVersion)
-        wishRepository.save(Wish(registrant, newVersion))
+        wishRepository.save(Wish(registrant, newVersion, itemId))
 
         notificationDispatcher.dispatch(ItemParsingFailed(itemId, newVersion))
 
@@ -815,7 +815,10 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
 
     // 알림 역조회는 wish/tournament_item→item_snapshots 를 snapshot_id 로 조인해 s.item_id 로 매칭한다.
     // 따라서 그 itemId 로 시딩한 snapshot 의 id 를 wish/tournament_item 의 snapshotId 로 넘겨야 역조회가 맞아떨어진다.
-    private fun snapshotIdFor(itemId: Long): Long = itemSnapshotRepository.save(ItemSnapshot.pending(itemId).apply { markProcessing() }).getId()
+    private fun snapshotIdFor(itemId: Long): Long =
+        itemSnapshotRepository
+            .save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID()).apply { markProcessing() })
+            .getId()
 
     // 해소 통지(#1028)는 포인터가 가리키는 **상태** 로 수신자를 가르므로, 상태를 지정해 버전을 깐다.
     private fun snapshotWithStatus(

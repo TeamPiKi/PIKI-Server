@@ -86,6 +86,7 @@ class TournamentWishAddConcurrencyIntegrationTest : IntegrationTestSupport() {
                 Wish(
                     userId = ownerId,
                     snapshotId = snapshotIdByItemId.getValue(item.getId()),
+                    itemId = item.getId(),
                 )
             },
         )
