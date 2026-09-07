@@ -1,0 +1,19 @@
+# 프로젝트 보드 동기화(이슈 축) — 본문은 TeamPiKi/infra 의 reusable 정본에 있다.
+# 이슈 오픈(보드 등록·본문 날짜/우선순위 파싱·작성자 할당)을 구독한다. PR 축과 파일을 나눈 이유는
+# project-board-sync.yml 주석 참고. PROJECT_TOKEN 정책도 같다.
+name: Project Board Issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  sync:
+    # 이슈 작성자 자동 할당(issue-auto-assign)의 issues:write. 보드 쓰기는 PROJECT_TOKEN(PAT)이라 여기 권한이 필요 없다.
+    permissions:
+      issues: write
+    uses: TeamPiKi/infra/.github/workflows/project-board-issues.yml@main
+    secrets:
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}

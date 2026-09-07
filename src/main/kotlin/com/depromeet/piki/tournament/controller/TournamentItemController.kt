@@ -70,7 +70,7 @@ class TournamentItemController(
         @PathVariable tournamentId: Long,
         @RequestBody request: PresignedImageUploadRequest,
     ): ApiResponseBody<PresignedImageUploadResponse> {
-        val uploads = tournamentItemService.presignImageUploads(userId, tournamentId, request.contentTypes)
+        val uploads = tournamentItemService.presignImageUploads(userId, tournamentId, request.toUploadFormats())
         return ApiResponseBody.ok(PresignedImageUploadResponse.from(uploads))
     }
 
