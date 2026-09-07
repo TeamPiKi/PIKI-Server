@@ -11,6 +11,12 @@ interface WishRepository {
     // 탈퇴 cascade — 그 유저의 위시를 일괄 하드삭제하고 영향 건수를 돌려준다. 멱등.
     fun hardDeleteAllByUserId(userId: UUID): Int
 
+    // 정체성 병합 추종(#1051) — 진 item 을 가리키던 위시의 item_id 를 이긴 item 으로 옮기고 영향 건수를 돌려준다.
+    fun reparentItem(
+        fromItemId: Long,
+        toItemId: Long,
+    ): Int
+
     fun countByIdsAndUserId(
         ids: List<Long>,
         userId: UUID,

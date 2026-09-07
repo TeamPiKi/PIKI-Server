@@ -6,18 +6,28 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-// 카드 표시값 규칙(#1051)의 분기 망라. 입력은 한 상품의 버전들과 카드 주인뿐이라 프레임워크 없이 순수하게 검증한다.
+// 카드 표시값 규칙(#1051)의 분기 망라. 입력은 한 상품의 버전들, 카드 주인, 카드가 기다리는 행뿐이라 프레임워크 없이 검증한다.
 // 불변식: 남의 진행 중·남의 수기·남의 미완은 내 카드에 새어 들어오지 않는다. 내 수기값은 그보다 새로운 서버 READY 에만 진다.
+// 새로고침은 어떤 플로우도 막지 않는다 — 진행 중은 그 행을 기다리는 카드에만 보인다.
 class ItemVersionsTest {
     private val me = UUID.randomUUID()
     private val other = UUID.randomUUID()
 
     @Test
-    fun `내가 시킨 진행 중 버전이 있으면 완성 값이 있어도 진행 중을 보인다 - 내가 시작한 갱신의 UX 신호`() {
+    fun `카드가 기다리는 행이 진행 중이면 완성 값이 있어도 진행 중을 보인다 - 내가 시작한 갱신`() {
         val ready = machineReady(1, by = other)
         val myPending = pending(2, by = me)
 
-        assertEquals(myPending, ItemVersions.of(listOf(ready, myPending)).displayFor(me))
+        assertEquals(myPending, display(listOf(ready, myPending), waitingOn = myPending))
+    }
+
+    @Test
+    fun `같은 사람의 다른 카드는 그 갱신을 기다리지 않으므로 흔들리지 않는다 - 위시 새로고침 중인 사람의 토너먼트 카드`() {
+        // 토너먼트 카드는 출전 pin(READY)을 기다린다. 위시 쪽 새로고침이 만든 진행 중 행은 만든 사람이 나라도 이 카드와 무관하다.
+        val pinned = machineReady(1, by = me)
+        val myWishRefresh = pending(2, by = me)
+
+        assertEquals(pinned, display(listOf(pinned, myWishRefresh), waitingOn = pinned))
     }
 
     @Test
@@ -25,7 +35,16 @@ class ItemVersionsTest {
         val ready = machineReady(1, by = me)
         val othersPending = pending(2, by = other)
 
-        assertEquals(ready, ItemVersions.of(listOf(ready, othersPending)).displayFor(me))
+        assertEquals(ready, display(listOf(ready, othersPending), waitingOn = ready))
+    }
+
+    @Test
+    fun `합류한 진행 중은 만든 사람이 남이라도 보인다 - 새로고침 합류`() {
+        // B 가 새로고침을 누르는데 A 의 새로고침이 진행 중이면 B 의 카드가 그 행을 기다리게 된다(#826).
+        val ready = machineReady(1, by = me)
+        val othersPending = pending(2, by = other)
+
+        assertEquals(othersPending, display(listOf(ready, othersPending), waitingOn = othersPending))
     }
 
     @Test
@@ -33,7 +52,7 @@ class ItemVersionsTest {
         val ready = machineReady(1, by = other)
         val myManual = manual(2, by = me)
 
-        assertEquals(myManual, ItemVersions.of(listOf(ready, myManual)).displayFor(me))
+        assertEquals(myManual, display(listOf(ready, myManual), waitingOn = myManual))
     }
 
     @Test
@@ -41,7 +60,7 @@ class ItemVersionsTest {
         val myManual = manual(1, by = me)
         val newerReady = machineReady(2, by = other)
 
-        assertEquals(newerReady, ItemVersions.of(listOf(myManual, newerReady)).displayFor(me))
+        assertEquals(newerReady, display(listOf(myManual, newerReady), waitingOn = myManual))
     }
 
     @Test
@@ -49,7 +68,7 @@ class ItemVersionsTest {
         val ready = machineReady(1, by = other)
         val othersManual = manual(2, by = other)
 
-        assertEquals(ready, ItemVersions.of(listOf(ready, othersManual)).displayFor(me))
+        assertEquals(ready, display(listOf(ready, othersManual), waitingOn = ready))
     }
 
     @Test
@@ -58,7 +77,7 @@ class ItemVersionsTest {
         val myManual = manual(2, by = me)
         val myFailed = failed(3, by = me)
 
-        assertEquals(myManual, ItemVersions.of(listOf(ready, myManual, myFailed)).displayFor(me))
+        assertEquals(myManual, display(listOf(ready, myManual, myFailed), waitingOn = myFailed))
     }
 
     @Test
@@ -66,7 +85,7 @@ class ItemVersionsTest {
         val myManual = manual(1, by = me)
         val myFailed = failed(2, by = me)
 
-        assertEquals(myManual, ItemVersions.of(listOf(myManual, myFailed)).displayFor(me))
+        assertEquals(myManual, display(listOf(myManual, myFailed), waitingOn = myFailed))
     }
 
     @Test
@@ -74,7 +93,7 @@ class ItemVersionsTest {
         val ready = machineReady(1, by = me)
         val myIncomplete = incomplete(2, by = me)
 
-        assertEquals(myIncomplete, ItemVersions.of(listOf(ready, myIncomplete)).displayFor(me))
+        assertEquals(myIncomplete, display(listOf(ready, myIncomplete), waitingOn = myIncomplete))
     }
 
     @Test
@@ -82,7 +101,7 @@ class ItemVersionsTest {
         val ready = machineReady(1, by = me)
         val othersIncomplete = incomplete(2, by = other)
 
-        assertEquals(ready, ItemVersions.of(listOf(ready, othersIncomplete)).displayFor(me))
+        assertEquals(ready, display(listOf(ready, othersIncomplete), waitingOn = ready))
     }
 
     @Test
@@ -90,15 +109,25 @@ class ItemVersionsTest {
         val myIncomplete = incomplete(1, by = me)
         val newerReady = machineReady(2, by = other)
 
-        assertEquals(newerReady, ItemVersions.of(listOf(myIncomplete, newerReady)).displayFor(me))
+        assertEquals(newerReady, display(listOf(myIncomplete, newerReady), waitingOn = myIncomplete))
     }
 
     @Test
-    fun `값이 하나도 없으면 상품의 최신 사실을 본다 - 등록 합류 진행 중`() {
-        // 남이 만든 진행 중 버전에 등록으로 합류한 사람은 아직 아무 값도 없다. 그때만 남의 진행 중이 보인다(내 등록 흐름).
-        val othersPending = pending(1, by = other)
+    fun `값이 하나도 없으면 기다리던 행의 결과를 본다 - 등록 합류가 INCOMPLETE 로 끝난 경우`() {
+        // B 가 A 의 첫 파싱에 합류했고 그 파싱이 INCOMPLETE 로 끝났다. B 도 값이 없으니 그 결과가 B 의 등록 결과다.
+        val joinedIncomplete = incomplete(1, by = other)
 
-        assertEquals(othersPending, ItemVersions.of(listOf(othersPending)).displayFor(me))
+        assertEquals(joinedIncomplete, display(listOf(joinedIncomplete), waitingOn = joinedIncomplete))
+    }
+
+    @Test
+    fun `남이 뒤에 남긴 실패는 내가 기다리던 결과를 지우지 않는다`() {
+        val joinedIncomplete = incomplete(1, by = other)
+        val othersLaterFailed = failed(2, by = other)
+
+        val versions = listOf(joinedIncomplete, othersLaterFailed)
+
+        assertEquals(joinedIncomplete, display(versions, waitingOn = joinedIncomplete))
     }
 
     @Test
@@ -106,20 +135,26 @@ class ItemVersionsTest {
         val myFailed = failed(1, by = me)
         val othersManual = manual(2, by = other)
 
-        assertEquals(myFailed, ItemVersions.of(listOf(myFailed, othersManual)).displayFor(me))
+        assertEquals(myFailed, display(listOf(myFailed, othersManual), waitingOn = myFailed))
     }
 
     @Test
-    fun `출처도 만든 사람도 모르는 도입 전 READY 는 공유 값으로 본다`() {
-        val legacy = version(1, ItemStatus.READY, source = null, by = null)
+    fun `출처를 모르는 도입 전 READY 는 만든 사람이 채워져 있어도 공유 값이다`() {
+        // 추정 백필이 옛 행에 만든 사람을 채우므로, 공유 여부는 만든 사람이 아니라 출처(수기 아님)로만 가른다.
+        val legacy = version(1, ItemStatus.READY, source = null, by = other)
 
-        assertEquals(legacy, ItemVersions.of(listOf(legacy)).displayFor(me))
+        assertEquals(legacy, display(listOf(legacy), waitingOn = legacy))
     }
 
     @Test
     fun `버전이 없으면 카드가 될 수 없다`() {
         assertFailsWith<IllegalArgumentException> { ItemVersions.of(emptyList()) }
     }
+
+    private fun display(
+        versions: List<ItemSnapshot>,
+        waitingOn: ItemSnapshot,
+    ): ItemSnapshot = ItemVersions.of(versions).displayFor(viewer = me, waitingOn = waitingOn.getId())
 
     // ── fixture ─────────────────────────────────────────────────────────────
     // 영속화 없이 id 를 흉내 내야 "최신" 판정(id 오름차순)을 검증할 수 있어 reflection 으로 id 를 박는다.

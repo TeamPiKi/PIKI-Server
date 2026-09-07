@@ -213,15 +213,12 @@ class ItemSnapshot(
 
     fun isManual(): Boolean = source == ItemSnapshotSource.MANUAL
 
-    // 기계(SERVER/SERVER_LLM) 추출 버전인지. 출처 미상(도입 전 행)은 false 다.
-    fun isMachine(): Boolean = source == ItemSnapshotSource.SERVER || source == ItemSnapshotSource.SERVER_LLM
-
     // 이 버전이 user 의 맥락에서 만들어졌는지(그 사람이 시켰거나 고쳤는지). 표시값 판정(ItemVersions)의 근거.
     fun isOwnedBy(user: UUID): Boolean = createdBy == user
 
-    // 누구의 카드에나 보이는 공유 값인지 — 기계 READY. 출처도 만든 사람도 모르는 도입 전 READY 행은 수기라 볼 근거가
-    // 없어 공유 값으로 취급한다(그 행이 유일한 값이던 카드가 비지 않게).
-    fun isSharedValue(): Boolean = isReady() && (isMachine() || (source == null && createdBy == null))
+    // 누구의 카드에나 보이는 공유 값인지 — 수기가 아닌 READY. 출처 미상(도입 전 행)도 수기라 볼 근거가 없어 공유로
+    // 취급한다. 만든 사람은 보지 않는다 — 추정 백필이 옛 행에도 만든 사람을 채우므로 그것으로 가르면 옛 값이 사라진다.
+    fun isSharedValue(): Boolean = isReady() && !isManual()
 
     // READY 불변식 — 유저가 가격·이미지·이름을 보고 아이템을 선택하고, 가격 이력은 추출시각(extractedAt)을 축으로
     // 보여주므로 이 네 필드가 다 있어야 쓸 수 있는 버전이다. READY 를 만드는 두 경로(markReady·manual)가

@@ -19,9 +19,6 @@ interface ItemSnapshotRepository {
     // 공유 등록(#825): 신선도 재사용 판정 — 마지막 기계 READY.
     fun findLatestMachineReadyByItemId(itemId: Long): ItemSnapshot?
 
-    // 카드 표시값 파생(#857): item 별 마지막 기계 READY 배치 조회. 없는 item 은 결과에서 빠진다.
-    fun findLatestMachineReadyByItemIds(itemIds: Collection<Long>): List<ItemSnapshot>
-
     // 카드 표시값 파생(#1051): 여러 item 의 살아있는 버전 전체를 id 오름차순으로. 규칙(ItemVersions)이 상품별 행 전체를
     // 보고 고르므로 필터를 SQL 에 두지 않는다. 이력이 길어지면 상품별 상한을 두는 것이 후속 최적화 지점이다.
     fun findAllByItemIds(itemIds: Collection<Long>): List<ItemSnapshot>
