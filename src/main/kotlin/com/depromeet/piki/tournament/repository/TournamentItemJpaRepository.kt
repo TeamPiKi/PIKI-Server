@@ -1,6 +1,5 @@
 package com.depromeet.piki.tournament.repository
 
-import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.tournament.domain.TournamentItem
 import com.depromeet.piki.tournament.domain.TournamentStatus
 import java.time.LocalDateTime
@@ -59,18 +58,17 @@ interface TournamentItemJpaRepository : JpaRepository<TournamentItem, Long> {
     )
     fun findRoutingsWithUserBySnapshotId(@Param("snapshotId") snapshotId: Long): List<TournamentItemUserRoutingView>
 
-    // 위와 같은 (등록자, 토너먼트 좌표) 이되 **버전이 아니라 아이템** 으로 찾고, 지정한 상태의 버전을 pin 한 출전만 고른다(#1028).
-    // 해소 통지의 수신자는 방금 성공한 버전이 아니라 다른 미완성 버전에 멈춰 있던 등록자다 — 위시 쪽과 같은 이유.
+    // 이 상품을 출전시킨 카드 전부(등록자, 토너먼트 좌표, pin) — 해소 통지(#1028) 수신자 판정용(#1051). 출전은 snapshot 만
+    // 참조하므로 pin 의 itemId 로 상품에 도달한다. 어느 카드가 이 파싱으로 채워지는지는 알림 쪽이 표시값 규칙으로 가른다.
     @Query(
-        "SELECT t.userId AS userId, t.tournamentId AS tournamentId, t.id AS tournamentItemId " +
+        "SELECT t.userId AS userId, t.tournamentId AS tournamentId, " +
+            "t.id AS tournamentItemId, t.snapshotId AS snapshotId " +
             "FROM TournamentItem t, ItemSnapshot s " +
-            "WHERE t.snapshotId = s.id AND s.itemId = :itemId AND s.status IN :statuses AND t.deletedAt IS NULL " +
-            "ORDER BY t.id ASC",
+            "WHERE t.snapshotId = s.id AND s.itemId = :itemId AND t.deletedAt IS NULL ORDER BY t.id ASC",
     )
-    fun findRoutingsWithUserByItemIdAndStatuses(
+    fun findCardsByItemId(
         @Param("itemId") itemId: Long,
-        @Param("statuses") statuses: Collection<ItemStatus>,
-    ): List<TournamentItemUserRoutingView>
+    ): List<TournamentItemCardView>
 
     @Modifying
     @Query(

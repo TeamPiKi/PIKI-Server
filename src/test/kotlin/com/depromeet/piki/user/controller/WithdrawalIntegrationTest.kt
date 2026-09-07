@@ -112,7 +112,7 @@ class WithdrawalIntegrationTest : IntegrationTestSupport() {
     private fun insertWish(userId: UUID): Long {
         val snapshotId = insertItemSnapshot(itemId = 1L)
         jdbcTemplate.update(
-            "INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, ?, NOW(6), NOW(6))",
+            "INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, ?, 1, NOW(6), NOW(6))",
             uuidToBytes(userId),
             snapshotId,
         )

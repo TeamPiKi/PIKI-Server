@@ -4,6 +4,7 @@ import com.depromeet.piki.item.domain.Item
 import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.item.service.ItemIdentityRecorder
 import com.depromeet.piki.item.service.ItemSharingService
@@ -252,7 +253,7 @@ class TournamentItemPersistenceService(
         val pointer =
             itemSnapshotRepository.findById(tournamentItem.snapshotId)
                 ?: error("snapshot 없음 — snapshotId=${tournamentItem.snapshotId}")
-        return itemDisplayService.resolveDisplay(pointer, owner = tournamentItem.userId)
+        return itemDisplayService.resolveDisplay(DisplayCard.waitingOn(pointer, owner = tournamentItem.userId))
     }
 
     // 이미지 업로드(외부 호출) 전에 권한·상태·복제를 미리 검증해 거부될 요청이 S3 에 orphan raw 를 남기지 않게 한다.

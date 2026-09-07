@@ -223,7 +223,7 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
         userId: UUID,
         itemId: Long,
         snapshotId: Long,
-    ): Long = wishRepository.save(Wish(userId = userId, snapshotId = snapshotId, itemId = itemId)).getId()
+    ): Long = wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshotId, itemId = itemId)).getId()
 
     private fun buildMockMvc(): MockMvc =
         MockMvcBuilders

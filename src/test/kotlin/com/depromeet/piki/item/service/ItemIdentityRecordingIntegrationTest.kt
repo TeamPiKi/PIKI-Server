@@ -166,7 +166,7 @@ class ItemIdentityRecordingIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(latecomer.getId(), requestedBy = userId))
         val wish =
-            wishJpaRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = latecomer.getId()))
+            wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = snapshot.getId(), itemId = latecomer.getId()))
         try {
             itemIdentityRecorder.recordParsingIdentity(owner.getId(), finalUrl)
             itemIdentityRecorder.recordParsingIdentity(latecomer.getId(), finalUrl)
