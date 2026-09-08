@@ -749,6 +749,7 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isHost = true,
                                                                 isMasked = false,
                                                             ),
                                                             GroupResultResponse.ParticipantSummaryResponse(
@@ -760,6 +761,7 @@ class TournamentApiExamples(
                                                                 nickname = "탈퇴aaaaaaaa",
                                                                 profileImage = defaultProfileImages.deleted(),
                                                                 isWithdrawn = true,
+                                                                isHost = false,
                                                                 isMasked = false,
                                                             ),
                                                         ),
@@ -781,6 +783,7 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isHost = true,
                                                                 isMasked = false,
                                                             ),
                                                         ),
@@ -816,6 +819,8 @@ class TournamentApiExamples(
                                                                 nickname = "나",
                                                                 profileImage = defaultProfileImages.urlOf(1),
                                                                 isWithdrawn = false,
+                                                                // 플레이 링크로 들어온 게스트라 주최자가 아니다. 주최자는 가려져 배지도 안 뜬다.
+                                                                isHost = false,
                                                                 isMasked = false,
                                                             ),
                                                             // 남은 신원이 지워진다 — 탈퇴 여부(isWithdrawn)도 알려주지 않는다.
@@ -824,6 +829,8 @@ class TournamentApiExamples(
                                                                 nickname = ParticipantSummary.MASKED_NICKNAME,
                                                                 profileImage = defaultProfileImages.masked(),
                                                                 isWithdrawn = false,
+                                                                // 가려진 참여자는 배지가 신원을 지목하므로 주최자여도 false 다.
+                                                                isHost = false,
                                                                 isMasked = true,
                                                             ),
                                                         ),
@@ -843,6 +850,8 @@ class TournamentApiExamples(
                                                                 nickname = ParticipantSummary.MASKED_NICKNAME,
                                                                 profileImage = defaultProfileImages.masked(),
                                                                 isWithdrawn = false,
+                                                                // 가려진 참여자는 배지가 신원을 지목하므로 주최자여도 false 다.
+                                                                isHost = false,
                                                                 isMasked = true,
                                                             ),
                                                         ),

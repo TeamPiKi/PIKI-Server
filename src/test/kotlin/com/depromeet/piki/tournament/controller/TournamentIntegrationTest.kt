@@ -4235,6 +4235,8 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             // 회원에게는 마스킹이 걸리지 않는다 — 게스트 마스킹이 회원 응답까지 덮는 회귀를 막는다.
             .andExpect(jsonPath("$.data.items[0].chosenBy[0].isMasked").value(false))
             .andExpect(jsonPath("$.data.items[0].chosenBy[0].userId").isString)
+            // 영수증에도 주최자 배지를 단다(#1062). 헬퍼에서 userId 가 ROOT 를 만들고 먼저 완주하므로 첫 선택자가 주최자다.
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].isHost").value(true))
     }
 
     @Test
@@ -4261,12 +4263,17 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             ).andExpect(status().isOk)
             .andReturn()
 
-        val nicknames = objectMapper
+        val chosenBy = objectMapper
             .readTree(result.response.contentAsString)["data"]["items"]
             .flatMap { it["chosenBy"] }
-            .map { it["nickname"].asText() }
-            .toSet()
+        val nicknames = chosenBy.map { it["nickname"].asText() }.toSet()
 
+        // 주최자 배지는 주최자 한 명에게만 붙는다(#1062). 참여자가 둘 다 살아 있는 유일한 그룹 결과 케이스라 여기서 검증한다.
+        assertEquals(
+            listOf("주최자토너닉"),
+            chosenBy.filter { it["isHost"].asBoolean() }.map { it["nickname"].asText() },
+            "isHost 는 주최자 한 명에게만 붙어야 한다: $chosenBy",
+        )
         // 주최자는 토너먼트 닉으로 뜨고 프로필 닉은 새지 않는다. 클론 소유자(플레이링크 게스트)도 자기 토너먼트 닉으로 뜬다.
         assertTrue("주최자토너닉" in nicknames, "선택자에 토너먼트 닉이 있어야 한다: $nicknames")
         assertTrue("주최자프로필" !in nicknames, "프로필 닉이 그룹 결과에 새면 안 된다: $nicknames")
@@ -4496,6 +4503,9 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
         )
         // 탈퇴 여부를 남기면 "탈퇴한 사람" 과 "로그인하면 보이는 사람" 이 갈려 마스킹이 그만큼 샌다.
         assertTrue(masked.none { it["isWithdrawn"].asBoolean() }, "가려진 참여자의 isWithdrawn 은 false 여야 한다: $masked")
+        // 주최자 배지는 더 치명적이다 — 게스트는 자기를 초대한 사람이 주최자임을 알아, 배지 하나가 그 사람을 지목한다(#1062).
+        // 이 시나리오에서 가려진 사람이 곧 주최자라 배지가 새면 바로 드러난다.
+        assertTrue(masked.none { it["isHost"].asBoolean() }, "가려진 참여자의 isHost 는 false 여야 한다: $masked")
     }
 
     @Test

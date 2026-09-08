@@ -1179,10 +1179,14 @@ class TournamentService(
         // 값이 NULL(레거시)이면 다음 후보로, 최종은 프로필 닉으로 폴백한다.
         // findByTournamentId(활성 TU)는 아직 완료 안 한 멤버 루트 TU 를 커버하고, completedRootTUs(deletedAt 무관)는
         // 삭제한 주최자의 완료 ROOT TU 를 커버한다 — 둘을 합쳐, 삭제된 완료 ROOT 가 스냅샷 닉 대신 프로필로 폴백하지 않게 한다.
-        val rootNicknameByUserId =
-            (tournamentUserRepository.findByTournamentId(tournamentId) + completedRootTUs)
-                .associate { it.userId to it.nickname }
+        val rootTUs = tournamentUserRepository.findByTournamentId(tournamentId) + completedRootTUs
+        val rootNicknameByUserId = rootTUs.associate { it.userId to it.nickname }
         val nicknameByTuId = cloneOwnerTUById.values.associate { it.getId() to it.nickname }
+        // 주최자 배지(#1062). play.tuId 로 판정하지 않고 userId 로 푸는 이유는, 주최자가 ROOT 와 자기 CLONE 을 둘 다
+        // 완주했을 때 dedup 이 어느 play 를 남기든 같은 결과가 나와야 해서다 — CLONE play 의 tuId 는 ROOT 오너 TU 가 아니다.
+        // 주최자 TU 를 못 찾으면(삭제된 주최자가 완주도 안 한 경우) 아무에게도 배지를 안 단다. 배지는 부가 표시라
+        // 500 으로 결과 전체를 막는 것보다 조용히 빠지는 편이 낫다.
+        val ownerUserId = rootTUs.firstOrNull { it.getId() == tournament.ownerTournamentUserId }?.userId
 
         // "선택자" = 해당 아이템을 자신의 1위(우승)로 고른 참여자
         // itemId 단위로 집계하고 정렬 후 그룹 rank 를 부여한다.
@@ -1221,6 +1225,7 @@ class TournamentService(
                 nickname = rootNicknameByUserId[play.userUUID] ?: nicknameByTuId[play.tuId] ?: user.nickname,
                 profileImage = user.profileImage,
                 isWithdrawn = !user.isActive(),
+                isHost = user.id == ownerUserId,
             )
 
             for ((tournamentItemId, rank) in ranked) {

@@ -301,8 +301,12 @@ interface TournamentApi {
             원본 토너먼트와 플레이 링크로 복제된 모든 토너먼트의 결과를 비교해,
             각 순위의 아이템마다 동일한 결과를 선택한 참여자 정보를 반환한다.
 
+            각 참여자에 isHost 가 포함된다 (이 토너먼트를 만든 주최자면 true). 클라이언트는 프로필 우측 하단에 HostBadge 를 그린다.
+            참여자 노출 순서는 바꾸지 않는다 - 선택자 집계 순서 그대로다 (게스트 응답에서 본인만 맨 앞으로 오는 것은 아래 참조).
+
             **게스트(비회원)가 조회하면 본인을 제외한 참여자의 신원이 서버에서 가려져 내려온다.**
-            - 가려진 참여자: `isMasked=true` · `userId=null` · `nickname="?"` · `profileImage`=물음표 아바타 · `isWithdrawn=false`
+            - 가려진 참여자: `isMasked=true` · `userId=null` · `nickname="?"` · `profileImage`=물음표 아바타 · `isWithdrawn=false` · `isHost=false`
+              (`isHost` 도 가린다 - 게스트는 자기를 초대한 사람이 주최자임을 알기 때문에 배지 하나가 그 사람의 신원을 그대로 지목한다)
             - 본인: 가리지 않고 각 아이템 `chosenBy` 의 **맨 앞**에 온다 (`isMasked=false`)
             - 아이템의 이름·가격·이미지·순위는 게스트에게도 그대로 내려간다 (사람만 가린다)
 

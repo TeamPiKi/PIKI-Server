@@ -15,12 +15,14 @@ class GroupResultTest {
         userId: UUID,
         nickname: String,
         isWithdrawn: Boolean = false,
+        isHost: Boolean = false,
     ): ParticipantSummary =
         ParticipantSummary(
             userId = userId,
             nickname = nickname,
             profileImage = "https://cdn.example.com/$nickname.png",
             isWithdrawn = isWithdrawn,
+            isHost = isHost,
         )
 
     private fun itemWith(chosenBy: List<ParticipantSummary>): GroupResultItem =
@@ -91,6 +93,40 @@ class GroupResultTest {
 
         assertEquals(false, other.isWithdrawn)
         assertEquals(ParticipantSummary.MASKED_NICKNAME, other.nickname)
+    }
+
+    @Test
+    fun `가려진 참여자가 주최자여도 isHost 는 false 로 덮인다`() {
+        // 게스트는 자기를 초대한 사람이 주최자임을 이미 안다 — 배지 하나가 가려진 한 명의 신원을 그대로 지목한다.
+        val me = UUID.randomUUID()
+        val result = GroupResult(
+            items = listOf(
+                itemWith(
+                    listOf(
+                        participant(me, "나"),
+                        participant(UUID.randomUUID(), "주최자", isHost = true),
+                    ),
+                ),
+            ),
+        )
+
+        val other = result.maskedFor(me, maskedImage).items[0].chosenBy[1]
+
+        assertEquals(false, other.isHost)
+        assertEquals(ParticipantSummary.MASKED_NICKNAME, other.nickname)
+    }
+
+    @Test
+    fun `본인이 주최자면 가려지지 않으므로 isHost 가 그대로 남는다`() {
+        val me = UUID.randomUUID()
+        val result = GroupResult(
+            items = listOf(itemWith(listOf(participant(UUID.randomUUID(), "남1"), participant(me, "나", isHost = true)))),
+        )
+
+        val mine = result.maskedFor(me, maskedImage).items[0].chosenBy[0]
+
+        assertEquals(me, mine.userId)
+        assertEquals(true, mine.isHost)
     }
 
     @Test
