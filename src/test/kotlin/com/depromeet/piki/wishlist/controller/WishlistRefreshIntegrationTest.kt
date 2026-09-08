@@ -439,7 +439,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
             assertEquals(ItemStatus.READY, active.status)
             assertEquals("보정", active.name)
             assertEquals(ItemSnapshotSource.MANUAL, active.source)
-            assertEquals(userId, active.editedBy)
+            assertEquals(userId, active.createdBy)
             // 기존 행들은 불변 — FAILED 는 FAILED 로(이력), 최신 PROCESSING 은 파싱 계속.
             assertEquals(ItemStatus.FAILED, itemSnapshotRepository.findById(failed.getId())?.status)
             assertEquals(ItemStatus.PROCESSING, itemSnapshotRepository.findById(newer.getId())?.status)
