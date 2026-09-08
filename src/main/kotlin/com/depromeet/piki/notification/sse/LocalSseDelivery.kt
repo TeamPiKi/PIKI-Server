@@ -11,8 +11,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-// SSE 의 "로컬 write" 지점 — 레지스트리에 든 emitter 들에 실제로 이벤트를 흘려보내고, write 가 실패하는
-// 죽은 연결을 정리한다. emitter write 가 일어나는 곳은 여기 한 곳으로 모은다(전달·하트비트 공용).
+// SSE 의 "로컬 write·종료" 지점 — 레지스트리에 든 연결들에 실제로 이벤트를 흘려보내고, 죽은 연결을 complete 로 닫는다.
+// emitter write 와 complete 가 일어나는 곳은 여기 한 곳으로 모은다(전달·ping·결측 정리·탈퇴 공용).
 //
 // 외부 진입(SseNotificationChannel.send)과 분리한 이유는 스케일아웃 seam 이다: 다중
 // 인스턴스가 되면 send() 는 Redis publish 로 바뀌고, 각 인스턴스의 Redis subscriber 가 이 deliver() 를
@@ -24,7 +24,7 @@ class LocalSseDelivery(
     private val log = LoggerFactory.getLogger(javaClass)
 
     // 한 유저의 모든 연결에 알림 이벤트를 보내고 **write 에 성공한 연결 수**를 반환한다.
-    // 이벤트는 유저당 한 번 만들어 그 유저의 emitter 들에 재사용한다.
+    // 이벤트는 유저당 한 번 만들어 그 유저의 연결들에 재사용한다.
     //
     // 반환값이 자동읽음(#812)의 근거다 — "레지스트리에 연결이 있었나" 가 아니라 "실제로 써 넣었나" 여야 한다.
     // 둘 사이엔 창이 있다: 하트비트가 30초 주기라 끊긴 소켓이 그동안 레지스트리에 살아 있고(half-open),
@@ -39,12 +39,12 @@ class LocalSseDelivery(
                 .event()
                 .name(EVENT_NOTIFICATION)
                 .data(NotificationSsePayload.from(notification))
-        return registry.emittersOf(userId).count { sendOrEvict(userId, it, event) }
+        return registry.connectionsOf(userId).count { sendOrEvict(it, event) }
     }
 
     // 조용한(silent) 화면 갱신 신호를 대상 유저들 연결에 실시간 흘려보낸다(알림 아님 — 토스트·알림센터·FCM 표시 푸시 없이 SSE 로만).
-    // notification 전달과 같은 emitter write 경로(sendOrEvict)를 공유하되 이벤트 name 만 다르다(클라가 name 으로 구분).
-    // 한 payload 이벤트를 만들어 대상 유저 전원의 emitter 에 재사용한다 — 같은 갱신을 보는 화면이 모두 동일하게 반영된다.
+    // notification 전달과 같은 write 경로(sendOrEvict)를 공유하되 이벤트 name 만 다르다(클라가 name 으로 구분).
+    // 한 payload 이벤트를 만들어 대상 유저 전원의 연결에 재사용한다 — 같은 갱신을 보는 화면이 모두 동일하게 반영된다.
     // 동기 로컬 write 다. broadcaster 는 이미 @Async 워커에서 호출하므로 직접 부르고, 읽음 응답 경로(badge)는
     // SilentSyncDispatcher 가 @Async 로 감싸 요청 스레드(emitter write·throw)가 읽음 응답을 막지 않게 한다.
     fun deliverSilentSync(
@@ -56,17 +56,13 @@ class LocalSseDelivery(
                 .event()
                 .name(EVENT_SILENT_SYNC)
                 .data(payload)
-        userIds.forEach { userId -> registry.emittersOf(userId).forEach { sendOrEvict(userId, it, event) } }
+        userIds.forEach { userId -> registry.connectionsOf(userId).forEach { sendOrEvict(it, event) } }
     }
 
-    // 탈퇴 시 그 유저의 모든 SSE 연결을 즉시 끊는다(best-effort). 레지스트리에서 키째 빼고 각 emitter 를
-    // complete 한다. complete 가 컨트롤러의 onCompletion(unregister)을 다시 깨워도 unregister 는 멱등이라 무해.
+    // 탈퇴 시 그 유저의 모든 SSE 연결을 즉시 끊는다(best-effort). 레지스트리에서 키째 빼고 각 연결을 complete 한다.
     // 인스턴스-로컬 연결만 끊는다 — 멀티 인스턴스로 확장돼도 각 인스턴스가 자기 메모리 연결만 정리하면 된다.
     fun closeAll(userId: UUID) {
-        registry.removeAll(userId).forEach { emitter ->
-            runCatching { emitter.complete() }
-                .onFailure { e -> log.warn("SSE 연결 종료 실패 userId={}", userId, e) }
-        }
+        registry.removeAll(userId).forEach { complete(it, "탈퇴") }
     }
 
     // 전 연결에 서버 ping 을 보내 연결을 살아있게 유지하고, write 가 실패하는 연결을 정리한다. (스케줄러가 주기 호출)
@@ -76,59 +72,64 @@ class LocalSseDelivery(
     // data 없는 event 는 SSE 표준상 디스패치되지 않으므로 data 는 반드시 싣는다.
     fun ping() {
         registry.forEach { connection ->
-            val event = SseEmitter.event().name(EVENT_HEARTBEAT).data(connection.id.toString())
-            sendOrEvict(connection.userId, connection.emitter, event)
+            sendOrEvict(connection, SseEmitter.event().name(EVENT_HEARTBEAT).data(connection.id.toString()))
         }
     }
 
-    // 클라이언트 하트비트가 threshold 넘게 끊긴 연결을 서버가 먼저 닫는다(#1057). 앱 <-> nginx 소켓은 건강하므로
-    // 정상 ASYNC 종료로 조용히 끝난다 - 클라이언트가 끊어 FIN 이 먼저 오는 경로(#1029 의 ERROR 디스패치 경합)를 피한다.
-    // INFO 로 남기는 이유: 이 로그 건수가 서버 에러 알림 빈도와 함께 #1057 의 효과를 판정하는 지표다.
+    // 클라이언트 하트비트가 threshold 넘게 끊긴 연결을 서버가 먼저 닫고 건수를 돌려준다(#1057). 앱 <-> nginx 소켓은
+    // 건강하므로 정상 ASYNC 종료로 조용히 끝난다 - 클라이언트가 끊어 FIN 이 먼저 오는 경로(#1029 의 ERROR 디스패치 경합)를 피한다.
+    // INFO 로 남기는 이유: 이 건수가 서버 에러 알림 빈도와 함께 #1057 의 효과를 판정하는 지표다.
     fun evictStale(
         now: Instant,
         threshold: Duration,
-    ) {
-        registry.forEach { connection ->
-            if (!connection.isStale(now, threshold)) return@forEach
+    ): Int {
+        val stale = registry.removeStale(now, threshold)
+        stale.forEach { connection ->
             log.info(
-                "SSE 클라이언트 하트비트 결측으로 연결 종료 userId={} connectionId={} lastSeenAt={}",
+                "SSE 클라이언트 하트비트 결측으로 연결 종료 userId={} connectionId={} lastHeartbeatAt={}",
                 connection.userId,
                 connection.id,
-                connection.lastSeenAt,
+                connection.lastHeartbeatAt,
             )
-            registry.unregister(connection.userId, connection.emitter)
-            runCatching { connection.emitter.complete() }
-                .onFailure { e ->
-                    log.warn("SSE 결측 연결 종료 실패 userId={} connectionId={}", connection.userId, connection.id, e)
-                }
+            complete(connection, "결측")
         }
+        return stale.size
     }
 
     // write 실패 = 죽은 연결(클라이언트가 끊겼는데 onError/onCompletion 콜백이 아직 안 탄 경우 등).
-    // 레지스트리에서 빼 더 흘려보내지 않게 하고 complete 로 정리를 마무리한다. completeWithError 를 쓰면 안 된다(#1024):
-    // 에러 종료는 Tomcat 의 /error ERROR 디스패치를 일으키는데, 그 디스패치엔 인증이 없어 AuthorizationDenied 가 나고
-    // SSE 응답은 이미 committed 라 403 도 못 써 "response is already committed" ERROR 로그 두 줄(서버 에러 알림)이 된다.
-    // 클라이언트가 이미 없는 연결이라 에러로 알릴 대상이 없다. complete 도 onCompletion 콜백(컨트롤러의 unregister)을
-    // 다시 깨울 수 있으나 unregister 는 멱등이라 중복 호출이 무해하다.
-    // write 성공 여부를 반환한다 — deliver 가 이걸 세어 자동읽음(#812) 근거로 쓴다.
+    // 레지스트리에서 빼 더 흘려보내지 않게 하고 complete 로 정리를 마무리한다. write 성공 여부를 반환한다 —
+    // deliver 가 이걸 세어 자동읽음(#812) 근거로 쓴다.
     private fun sendOrEvict(
-        userId: UUID,
-        emitter: SseEmitter,
+        connection: SseConnection,
         event: SseEmitter.SseEventBuilder,
     ): Boolean =
-        runCatching { emitter.send(event) }
+        runCatching { connection.emitter.send(event) }
             .onFailure { e ->
                 // 클라이언트가 연결을 끊은 정상 종료는 SSE 의 일상적 라이프사이클이라 DEBUG 로 둔다.
                 // Broken pipe·ClientAbortException·AsyncRequestNotUsableException 은 모두 IOException 하위이므로
                 // is IOException 한 분기로 묶인다. 그 외(예: 이미 complete 된 emitter 에 write 한 IllegalStateException)만
                 // 진짜 이상 신호로 WARN 한다. (정리 동작 자체는 두 경우 모두 동일하다.)
                 when (e) {
-                    is IOException -> log.debug("SSE write 실패(연결 끊김)로 emitter 정리 userId={}", userId, e)
-                    else -> log.warn("SSE write 실패로 emitter 정리 userId={}", userId, e)
+                    is IOException -> log.debug("SSE write 실패(연결 끊김)로 연결 정리 userId={}", connection.userId, e)
+                    else -> log.warn("SSE write 실패로 연결 정리 userId={}", connection.userId, e)
                 }
-                registry.unregister(userId, emitter)
-                runCatching { emitter.complete() }
+                registry.unregister(connection)
+                complete(connection, "write 실패")
             }.isSuccess
+
+    // 서버 쪽 종료는 언제나 complete 다. completeWithError 를 쓰면 안 된다(#1024): 에러 종료는 Tomcat 의 /error ERROR
+    // 디스패치를 일으키는데, 그 디스패치엔 인증이 없어 AuthorizationDenied 가 나고 SSE 응답은 이미 committed 라 403 도 못 써
+    // "response is already committed" ERROR 로그 두 줄(서버 에러 알림)이 된다. 클라이언트가 이미 없는 연결이라 에러로 알릴
+    // 대상도 없다. complete 가 컨트롤러의 onCompletion(unregister)을 다시 깨워도 unregister 는 멱등이라 무해하다.
+    private fun complete(
+        connection: SseConnection,
+        reason: String,
+    ) {
+        runCatching { connection.emitter.complete() }
+            .onFailure { e ->
+                log.warn("SSE {} 종료 실패 userId={} connectionId={}", reason, connection.userId, connection.id, e)
+            }
+    }
 
     companion object {
         // SSE 이벤트 name. 클라이언트는 이 이름으로 알림 이벤트와 connect/heartbeat 를 구분한다.

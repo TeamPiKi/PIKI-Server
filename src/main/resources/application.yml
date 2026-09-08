@@ -194,17 +194,13 @@ notification:
   retention-days: ${NOTIFICATION_RETENTION_DAYS:14}
   # 자동삭제 스케줄(cron, KST/Asia/Seoul). 기본 매일 04:00 KST. NotificationCleanupScheduler 의 @Scheduled(zone=Asia/Seoul) placeholder 가 참조한다.
   cleanup-cron: ${NOTIFICATION_CLEANUP_CRON:0 0 4 * * *}
-
-# SSE 클라이언트 -> 서버 하트비트(#1057). 서버 ping 은 nginx 까지 도달한 것만 확인돼 죽은 클라이언트를 약 17분 뒤에야 알므로,
-# 클라이언트가 30초마다 POST /api/v1/notifications/heartbeat 로 자기 생존을 알리고 서버가 결측 연결을 먼저 닫는다.
-sse:
-  client-heartbeat:
-    # 결측 연결 정리 스위치. 결측 판정은 하트비트를 한 번이라도 보낸 연결에만 걸리므로 구 버전 클라이언트가 섞여 있어도 켜서 안전하다.
-    # 기본 false 는 관측 순서 때문이다 - 클라이언트가 하트비트를 붙인 걸 확인한 뒤 켠다.
-    eviction-enabled: ${SSE_CLIENT_HEARTBEAT_EVICTION_ENABLED:false}
-    # 이 시간 넘게 하트비트가 없으면 결측. 클라이언트 주기(30초)의 2배 - 1.5배로 조이면 프록시 지연 한 번에 오탐 재연결이 난다.
-    # 단위 없는 숫자는 초로 읽는다. 30초 ping 순회에서만 검사하므로 실제 감지는 60초에서 90초 사이이고, 30초 이하면 부팅에 실패한다.
-    stale-after: ${SSE_CLIENT_HEARTBEAT_STALE_AFTER:60s}
+  # SSE 클라이언트 -> 서버 하트비트(#1057)의 결측 판정. 근거와 제약은 SseClientHeartbeatProperties·SsePingScheduler 주석.
+  sse:
+    client-heartbeat:
+      # 결측 연결 정리 스위치. 클라이언트가 하트비트를 붙인 걸 확인한 뒤 켠다(구 버전이 섞여 있어도 안전).
+      eviction-enabled: ${SSE_CLIENT_HEARTBEAT_EVICTION_ENABLED:false}
+      # 이 시간 넘게 하트비트가 없으면 결측. 단위 없는 숫자는 초. ping 주기(30초) 이하면 부팅에 실패한다.
+      stale-after: ${SSE_CLIENT_HEARTBEAT_STALE_AFTER:60s}
 
 # API 레퍼런스 문서 노출 게이트 — dev 만 노출, prod 는 404 (deploy.yml 이 dev 만 SPRINGDOC_ENABLED=true).
 # spec(springdoc.api-docs.enabled)·static Stoplight UI·루트 리다이렉트(docs.enabled → WebConfig)가 이 플래그를 공유한다.

@@ -1,7 +1,7 @@
 package com.depromeet.piki.notification.sse
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
-import com.depromeet.piki.notification.controller.dto.ClientHeartbeatRequest
+import com.depromeet.piki.common.exception.ErrorCategory
 import com.depromeet.piki.notification.controller.dto.NotificationSsePayload
 import com.depromeet.piki.notification.domain.Notification
 import com.depromeet.piki.notification.domain.NotificationErrorCode
@@ -101,7 +101,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                     .andReturn()
 
             // emitter 를 complete 시켜 async 처리를 끝낸다 → 컨테이너로 ASYNC 재디스패치가 트리거된다.
-            registry.emittersOf(userId).toList().forEach { it.complete() }
+            registry.connectionsOf(userId).forEach { it.emitter.complete() }
 
             // ASYNC 디스패치가 보안 필터를 다시 타도 AuthorizationFilter 에서 Access Denied 로 떨어지지 않고
             // 정상 종료돼야 한다(SecurityConfig 의 dispatcherTypeMatchers(ASYNC).permitAll()). 이게 빠지면
@@ -110,7 +110,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                 .perform(asyncDispatch(result))
                 .andExpect(status().isOk)
         } finally {
-            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+            registry.removeAll(userId)
         }
     }
 
@@ -124,9 +124,9 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(userId)),
                 ).andExpect(request().asyncStarted())
 
-            assertEquals(1, registry.emittersOf(userId).size)
+            assertEquals(1, registry.connectionsOf(userId).size)
         } finally {
-            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+            registry.removeAll(userId)
         }
     }
 
@@ -165,7 +165,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
             // SSE 이벤트 name 이 notification 으로 실린다.
             assertTrue(emitter.sentData.any { it is String && it.contains("event:notification") })
         } finally {
-            registry.unregister(userId, emitter)
+            registry.removeAll(userId)
         }
     }
 
@@ -185,7 +185,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
 
             assertTrue(otherEmitter.sentData.none { it is NotificationSsePayload })
         } finally {
-            registry.unregister(otherUserId, otherEmitter)
+            registry.removeAll(otherUserId)
         }
     }
 
@@ -202,7 +202,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
 
         sseNotificationChannel.send(userId, notification)
 
-        assertTrue(registry.emittersOf(userId).isEmpty())
+        assertTrue(registry.connectionsOf(userId).isEmpty())
     }
 
     @Test
@@ -231,7 +231,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
             assertEquals(555L, payload.tournamentItemId)
             assertEquals(11L, payload.refId)
         } finally {
-            registry.unregister(userId, emitter)
+            registry.removeAll(userId)
         }
     }
 
@@ -354,7 +354,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                 ).andExpect(status().isOk)
                 .andExpect(jsonPath("$.data").doesNotExist())
         } finally {
-            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+            registry.removeAll(userId)
         }
     }
 
@@ -389,13 +389,13 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                 ).andExpect(status().isConflict)
                 .andExpect(jsonPath("$.code").value(NotificationErrorCode.UNKNOWN_CONNECTION.code))
         } finally {
-            registry.unregister(owner, emitter)
+            registry.removeAll(owner)
         }
     }
 
-    // ApiExamples 의 400 detail 이 실제 응답과 같은지 실측으로 고정한다(@NotNull 위반은 필드 메시지만 detail 로 나간다).
+    // ApiExamples 의 400 detail 이 실제 응답과 같은지 실측으로 고정한다. 필수 필드 누락은 역직렬화 실패라 category 고정 문구다.
     @Test
-    fun `connectionId 없이 하트비트를 보내면 400 이고 detail 은 요청 DTO 의 메시지다`() {
+    fun `connectionId 없이 하트비트를 보내면 400 이고 detail 은 category 고정 문구다`() {
         buildMockMvc()
             .perform(
                 post("/api/v1/notifications/heartbeat")
@@ -403,7 +403,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{}"),
             ).andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.detail").value(ClientHeartbeatRequest.CONNECTION_ID_MESSAGE))
+            .andExpect(jsonPath("$.detail").value(ErrorCategory.INVALID_INPUT.description))
     }
 
     @Test
@@ -427,7 +427,7 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
             assertTrue(emitter.sentData.any { it is String && it.contains("event:heartbeat") })
             assertTrue(emitter.sentData.contains(connection.id.toString()))
         } finally {
-            registry.unregister(userId, emitter)
+            registry.removeAll(userId)
         }
     }
 
@@ -439,20 +439,21 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         val stale = RecordingSseEmitter()
         val alive = RecordingSseEmitter()
         val legacy = RecordingSseEmitter()
-        val staleConnection = registry.register(userId, stale, now)
-        val aliveConnection = registry.register(userId, alive, now)
-        registry.register(userId, legacy, now)
-        registry.touch(staleConnection.id, userId, now)
-        registry.touch(aliveConnection.id, userId, now.plusSeconds(50))
+        val staleConnection = registry.register(userId, stale)
+        val aliveConnection = registry.register(userId, alive)
+        registry.register(userId, legacy)
+        registry.touch(userId, staleConnection.id, now)
+        registry.touch(userId, aliveConnection.id, now.plusSeconds(50))
         try {
-            localDelivery.evictStale(now.plusSeconds(61), Duration.ofSeconds(60))
+            val evicted = localDelivery.evictStale(now.plusSeconds(61), Duration.ofSeconds(60))
 
-            assertEquals(listOf<SseEmitter>(alive, legacy), registry.emittersOf(userId))
+            assertEquals(1, evicted)
+            assertEquals(listOf<SseEmitter>(alive, legacy), registry.connectionsOf(userId).map { it.emitter })
             assertTrue(stale.completed)
             assertFalse(alive.completed)
             assertFalse(legacy.completed)
         } finally {
-            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+            registry.removeAll(userId)
         }
     }
 

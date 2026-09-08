@@ -47,6 +47,10 @@ class ObservationConfig {
                 isInfrastructure(name, context) -> hasParent(context)
                 context is ServerRequestObservationContext &&
                     (context.carrier?.requestURI?.startsWith("/actuator") ?: false) -> false
+                // SSE 클라이언트 하트비트(#1057)는 연결마다 30초에 한 번 오는 인메모리 갱신이라 앱에서 가장 잦은 요청이 된다.
+                // 요청당 span 3~4개와 uri 태그 시리즈 수십 개를 무료 한도에 실을 가치가 없어 actuator 와 같이 뺀다.
+                context is ServerRequestObservationContext &&
+                    context.carrier?.requestURI == "/api/v1/notifications/heartbeat" -> false
                 else -> true
             }
         }

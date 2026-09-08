@@ -5,7 +5,6 @@ import com.depromeet.piki.common.openapi.OpenApiObjectMapper
 import com.depromeet.piki.common.openapi.binds
 import com.depromeet.piki.common.openapi.examples
 import com.depromeet.piki.common.response.ApiResponseBody
-import com.depromeet.piki.notification.controller.dto.ClientHeartbeatRequest
 import com.depromeet.piki.notification.domain.NotificationException
 import org.springdoc.core.customizers.OperationCustomizer
 import org.springframework.context.annotation.Bean
@@ -30,15 +29,11 @@ class NotificationSseApiExamples(
                 handlerMethod.binds(NotificationSseController::heartbeat) ->
                     operation.examples(openApiObjectMapper.delegate) {
                         add(status = HttpStatus.OK, name = "하트비트 반영", payload = ApiResponseBody.ok<Unit>())
+                        // 누락·UUID 형식 오류 둘 다 역직렬화 실패(HttpMessageNotReadable)라 category 고정 문구가 detail 이다.
                         add(
                             status = HttpStatus.BAD_REQUEST,
-                            name = "connectionId 없음",
-                            // @NotNull 위반은 GlobalExceptionHandler.detailOf 가 위반 필드의 메시지를 그대로 detail 로 내린다.
-                            payload =
-                                ApiResponseBody.fail<Unit>(
-                                    CommonErrorCode.INVALID_INPUT,
-                                    detail = ClientHeartbeatRequest.CONNECTION_ID_MESSAGE,
-                                ),
+                            name = "connectionId 없음 또는 UUID 형식 아님",
+                            payload = ApiResponseBody.fail<Unit>(CommonErrorCode.INVALID_INPUT),
                         )
                         unauthorized("미인증")
                         add(NotificationException.unknownConnection(), name = "서버에 없는 연결 번호 - 재연결 필요")
