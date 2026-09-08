@@ -39,8 +39,10 @@ import com.depromeet.piki.tournament.service.dto.TournamentItemDetail
 import com.depromeet.piki.tournament.service.dto.StartResult
 import com.depromeet.piki.tournament.service.dto.TournamentStartResult
 import com.depromeet.piki.tournament.service.dto.TournamentSummary
+import com.depromeet.piki.user.domain.IdentityType
 import com.depromeet.piki.user.domain.UserException
 import com.depromeet.piki.user.repository.UserRepository
+import com.depromeet.piki.user.service.DefaultProfileImages
 import com.depromeet.piki.wishlist.repository.WishRepository
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
@@ -58,6 +60,7 @@ class TournamentService(
     private val itemSnapshotRepository: ItemSnapshotRepository,
     private val itemDisplayService: ItemDisplayService,
     private val wishRepository: WishRepository,
+    private val defaultProfileImages: DefaultProfileImages,
     private val eventPublisher: ApplicationEventPublisher,
 ) {
     // 탈퇴(tombstone) 계정의 토너먼트 생성을 막는다. anonymize 는 닉네임·프로필만 비우고 행은 남기므로,
@@ -1218,7 +1221,14 @@ class TournamentService(
                     chosenBy = winnersByItemId[ref.itemId] ?: emptyList(),
                 )
             }
-        return GroupResult(items = items)
+        val result = GroupResult(items = items)
+        // 게스트에게는 다른 참여자의 신원을 지워 내린다 — 클라가 정상 값을 받아 가리는 게 아니라 서버가
+        // 애초에 물음표 값을 내려야, 응답을 직접 뜯어봐도 남이 누구인지 알 수 없다.
+        // 판정을 `== MEMBER` 로 두어(부정형이 아니라) identity 종류가 늘어도 기본이 "가린다" 쪽에 남게 한다.
+        // users 행 없는 인증 유저(rejectIfDeleted 가 허용하는 레거시 창)도 회원임을 증명하지 못하므로 마스킹 대상이다.
+        val requesterIsMember = userById[userId]?.identityType == IdentityType.MEMBER
+        if (requesterIsMember) return result
+        return result.maskedFor(userId, defaultProfileImages.masked())
     }
 
     @Transactional

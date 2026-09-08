@@ -21,6 +21,7 @@ import com.depromeet.piki.tournament.controller.dto.TournamentInvitePreviewRespo
 import com.depromeet.piki.tournament.controller.dto.TournamentStartResponse
 import com.depromeet.piki.tournament.controller.dto.TournamentSummaryResponse
 import com.depromeet.piki.tournament.controller.dto.UpdateTournamentNicknameRequest
+import com.depromeet.piki.tournament.service.dto.ParticipantSummary
 import com.depromeet.piki.tournament.domain.TournamentStatus
 import com.depromeet.piki.tournament.service.TournamentException
 import com.depromeet.piki.user.domain.UserException
@@ -724,7 +725,7 @@ class TournamentApiExamples(
                         )
                         add(
                             status = HttpStatus.OK,
-                            name = "그룹 결과 조회 성공",
+                            name = "그룹 결과 조회 성공 (회원)",
                             payload =
                                 ApiResponseBody.ok(
                                     GroupResultResponse(
@@ -747,6 +748,7 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isMasked = false,
                                                             ),
                                                             GroupResultResponse.ParticipantSummaryResponse(
                                                                 userId =
@@ -757,6 +759,7 @@ class TournamentApiExamples(
                                                                 nickname = "탈퇴aaaaaaaa",
                                                                 profileImage = defaultProfileImages.deleted(),
                                                                 isWithdrawn = true,
+                                                                isMasked = false,
                                                             ),
                                                         ),
                                                 ),
@@ -777,6 +780,69 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isMasked = false,
+                                                            ),
+                                                        ),
+                                                ),
+                                            ),
+                                    ),
+                                ),
+                        )
+                        add(
+                            status = HttpStatus.OK,
+                            name = "그룹 결과 조회 성공 (게스트 — 남은 가려짐)",
+                            payload =
+                                ApiResponseBody.ok(
+                                    GroupResultResponse(
+                                        items =
+                                            listOf(
+                                                GroupResultResponse.GroupResultItemResponse(
+                                                    // 아이템 정보·순위는 게스트에게도 그대로 내려간다 — 가리는 건 사람뿐이다.
+                                                    rank = 1,
+                                                    itemId = 10,
+                                                    name = "나이키 에어맥스",
+                                                    price = 129_000,
+                                                    currency = "KRW",
+                                                    imageUrl = "https://cdn.example.com/items/1.jpg",
+                                                    chosenBy =
+                                                        listOf(
+                                                            // 본인은 가리지 않고 맨 앞에 온다.
+                                                            GroupResultResponse.ParticipantSummaryResponse(
+                                                                userId =
+                                                                    UUID.fromString(
+                                                                        "99999999-8888-7777-6666-555555555555",
+                                                                    ),
+                                                                nickname = "나",
+                                                                profileImage = defaultProfileImages.urlOf(1),
+                                                                isWithdrawn = false,
+                                                                isMasked = false,
+                                                            ),
+                                                            // 남은 신원이 지워진다 — 탈퇴 여부(isWithdrawn)도 알려주지 않는다.
+                                                            GroupResultResponse.ParticipantSummaryResponse(
+                                                                userId = null,
+                                                                nickname = ParticipantSummary.MASKED_NICKNAME,
+                                                                profileImage = defaultProfileImages.masked(),
+                                                                isWithdrawn = false,
+                                                                isMasked = true,
+                                                            ),
+                                                        ),
+                                                ),
+                                                GroupResultResponse.GroupResultItemResponse(
+                                                    rank = 2,
+                                                    itemId = 20,
+                                                    name = "아디다스 울트라부스트",
+                                                    price = 189_000,
+                                                    currency = "KRW",
+                                                    imageUrl = "https://cdn.example.com/items/2.jpg",
+                                                    chosenBy =
+                                                        listOf(
+                                                            // 본인이 고르지 않은 아이템이면 선택자가 전원 가려진다.
+                                                            GroupResultResponse.ParticipantSummaryResponse(
+                                                                userId = null,
+                                                                nickname = ParticipantSummary.MASKED_NICKNAME,
+                                                                profileImage = defaultProfileImages.masked(),
+                                                                isWithdrawn = false,
+                                                                isMasked = true,
                                                             ),
                                                         ),
                                                 ),

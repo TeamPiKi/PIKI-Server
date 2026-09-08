@@ -4134,6 +4134,9 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             ).andExpect(status().isOk)
             .andExpect(jsonPath("$.data.items").isArray)
             .andExpect(jsonPath("$.data.items[0].chosenBy[0].isWithdrawn").value(false))
+            // 회원에게는 마스킹이 걸리지 않는다 — 게스트 마스킹이 회원 응답까지 덮는 회귀를 막는다.
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].isMasked").value(false))
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].userId").isString)
     }
 
     @Test
@@ -4323,6 +4326,78 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
                     .header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId)),
             ).andExpect(status().isOk)
             .andExpect(jsonPath("$.data.items").isArray)
+    }
+
+    @Test
+    fun `GET group-result 는 비회원(GUEST)에게 본인 외 참여자의 신원을 가려서 내려준다`() {
+        // 사람만 가리고 상품·순위는 그대로 보여 준다 — 결과를 통째로 가리면 플레이를 끝내고도 못 봐 이탈한다.
+        // 클라가 정상 값을 받아 가리는 게 아니라 서버가 애초에 물음표 값을 내리므로, 응답을 직접 뜯어도 남을 알 수 없다.
+        val mockMvc = buildMockMvc()
+        saveUser(userId, userProfileImage, "주최자")
+        val guestId = UUID.randomUUID()
+        userJpaRepository.save(
+            User(
+                id = guestId,
+                nickname = "게스트유저",
+                profileImage = "https://cdn.example.com/g.jpg",
+                identityType = IdentityType.GUEST,
+            ),
+        )
+        val guestAuth = "Bearer ${jwtProvider.generateAccessToken(guestId, IdentityType.GUEST)}"
+        val (rootId, ti1, ti2) = completeTournamentWith2Items(mockMvc)
+        mockMvc.perform(
+            post("/api/v1/tournaments/$rootId/play-link")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"),
+        )
+        // 게스트가 플레이링크로 본인 CLONE 생성 → 시작 → 주최자와 같은 아이템을 1위로 선택하며 완료
+        val cloneResult = mockMvc
+            .perform(
+                post("/api/v1/tournaments/$rootId/from-play-link").header(HttpHeaders.AUTHORIZATION, guestAuth),
+            ).andReturn()
+        val cloneId = objectMapper.readTree(cloneResult.response.contentAsString)["data"].asLong()
+        mockMvc.perform(post("/api/v1/tournaments/$cloneId/start").header(HttpHeaders.AUTHORIZATION, guestAuth))
+        mockMvc.perform(
+            post("/api/v1/tournaments/$cloneId/matches")
+                .header(HttpHeaders.AUTHORIZATION, guestAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """{"currentRound":2,"firstTournamentItemId":$ti1,"secondTournamentItemId":$ti2,"selectedTournamentItemId":$ti1}""",
+                ),
+        )
+
+        val result = mockMvc
+            .perform(
+                get("/api/v1/tournaments/$rootId/group-result").header(HttpHeaders.AUTHORIZATION, guestAuth),
+            ).andExpect(status().isOk)
+            // 본인은 가려지지 않고 chosenBy 맨 앞에 온다.
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].nickname").value("게스트유저"))
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].isMasked").value(false))
+            // 상품 정보는 게스트에게도 그대로 내려간다.
+            .andExpect(jsonPath("$.data.items[0].name").value("아이템1"))
+            .andReturn()
+
+        val chosenBy = objectMapper
+            .readTree(result.response.contentAsString)["data"]["items"]
+            .flatMap { it["chosenBy"] }
+        val masked = chosenBy.filter { it["isMasked"].asBoolean() }
+
+        assertTrue(masked.isNotEmpty(), "주최자가 가려진 참여자로 내려와야 한다: $chosenBy")
+        assertTrue(
+            chosenBy.none { it["nickname"].asText() == "주최자" },
+            "게스트 응답에 다른 참여자의 닉네임이 새면 안 된다: $chosenBy",
+        )
+        assertTrue(
+            masked.all { it["userId"].isNull },
+            "가려진 참여자의 userId 가 남으면 토너먼트를 넘나들며 동일인을 추적할 수 있다: $masked",
+        )
+        assertTrue(
+            masked.all { it["nickname"].asText() == "?" && it["profileImage"].asText() == defaultProfileImages.masked() },
+            "가려진 참여자는 물음표 닉·마스킹 아바타로 내려와야 한다: $masked",
+        )
+        // 탈퇴 여부를 남기면 "탈퇴한 사람" 과 "로그인하면 보이는 사람" 이 갈려 마스킹이 그만큼 샌다.
+        assertTrue(masked.none { it["isWithdrawn"].asBoolean() }, "가려진 참여자의 isWithdrawn 은 false 여야 한다: $masked")
     }
 
     @Test

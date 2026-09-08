@@ -63,4 +63,31 @@ class DefaultProfileImagesTest {
 
         assertTrue(produced.none { it == deleted }, "random() 이 탈퇴 아바타를 뽑았다: $deleted")
     }
+
+    @Test
+    fun `masked 는 publicBaseUrl 과 defaults 마스킹 아바타 png 를 조립한다`() {
+        val images = defaultProfileImages("https://piki.s3.ap-northeast-2.amazonaws.com")
+
+        assertEquals("https://piki.s3.ap-northeast-2.amazonaws.com/defaults/user-masked.png", images.masked())
+    }
+
+    @Test
+    fun `masked 도 publicBaseUrl 끝 슬래시를 무시해 슬래시가 중복되지 않는다`() {
+        val images = defaultProfileImages("https://piki.s3.ap-northeast-2.amazonaws.com/")
+
+        assertEquals("https://piki.s3.ap-northeast-2.amazonaws.com/defaults/user-masked.png", images.masked())
+    }
+
+    // 두 그림이 지금은 같은 이미지여도 키는 갈라져 있어야 한다 — 의미가 다른 두 상태라, 한쪽만 바꾸고 싶어질 때
+    // 파일 교체로 끝나야 하기 때문이다. random() 도 이 값을 뽑아선 안 된다(가려지지 않은 유저가 물음표 프사를 갖는 사고).
+    @Test
+    fun `masked 는 탈퇴 아바타와 다른 키를 쓰고 random 도 이 값을 뽑지 않는다`() {
+        val images = defaultProfileImages("https://piki.s3.ap-northeast-2.amazonaws.com")
+        val masked = images.masked()
+
+        val produced = (1..200).map { images.random() }.toSet()
+
+        assertTrue(masked != images.deleted(), "마스킹 아바타가 탈퇴 아바타와 같은 키를 쓰면 한쪽만 교체할 수 없다: $masked")
+        assertTrue(produced.none { it == masked }, "random() 이 마스킹 아바타를 뽑았다: $masked")
+    }
 }
