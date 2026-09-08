@@ -86,8 +86,8 @@ class MetricsDashboardIntegrationTest : IntegrationTestSupport() {
         jdbcTemplate.update("INSERT INTO items (id, created_at, updated_at) VALUES (1002, ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (2001, 1001, 'READY', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (2002, 1002, 'FAILED', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 2001, ?, ?)", uuidToBytes(member1), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 2002, ?, ?)", uuidToBytes(member1), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 2001, 1001, ?, ?)", uuidToBytes(member1), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 2002, 1002, ?, ?)", uuidToBytes(member1), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
 
         // 리텐션 — 구간(6/20)에 가입한 3명 중 2명이 다음날(6/21 KST) 활동
         jdbcTemplate.update("INSERT INTO user_daily_activity (user_id, active_date, created_at) VALUES (?, ?, NOW(6))", uuidToBytes(member1), Date.valueOf(LocalDate.of(2026, 6, 21)))
@@ -157,10 +157,10 @@ class MetricsDashboardIntegrationTest : IntegrationTestSupport() {
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (3101, 3001, 'READY', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (3102, 3002, 'READY', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (3103, 3003, 'FAILED', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 3101, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 3102, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 3101, 3001, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 3102, 3002, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         // 삭제된 위시 — 활성(stock)에선 빠지지만 유입(flow)엔 잡히고, 파싱은 '위시 파싱'으로 남는다(아이템이 위시로 참조됨).
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at, deleted_at) VALUES (?, 3103, ?, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at, deleted_at) VALUES (?, 3103, 3003, ?, ?, ?)", uuidToBytes(member), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
 
         // 토너먼트 전용 아이템 — 위시가 없어 '토너먼트 파싱'으로 잡힌다.
         jdbcTemplate.update("INSERT INTO items (id, source_url, created_at, updated_at) VALUES (3004, 'https://shop.example/d', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
@@ -246,8 +246,8 @@ class MetricsDashboardIntegrationTest : IntegrationTestSupport() {
         jdbcTemplate.update("INSERT INTO items (id, source_url, created_at, updated_at) VALUES (7002, 'https://shop.example/d', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (7101, 7001, 'READY', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
         jdbcTemplate.update("INSERT INTO item_snapshots (id, item_id, status, created_at, updated_at) VALUES (7102, 7002, 'READY', ?, ?)", Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 7101, ?, ?)", uuidToBytes(normal), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
-        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, created_at, updated_at) VALUES (?, 7102, ?, ?)", uuidToBytes(dev), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 7101, 7001, ?, ?)", uuidToBytes(normal), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
+        jdbcTemplate.update("INSERT INTO wishes (user_id, snapshot_id, item_id, created_at, updated_at) VALUES (?, 7102, 7002, ?, ?)", uuidToBytes(dev), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))
 
         // 푸시 도달 가능 — 각자 활성 디바이스 1개.
         jdbcTemplate.update("INSERT INTO user_devices (user_id, device_id, fcm_token, created_at, updated_at) VALUES (?, 'dev-n', 'tok-n', ?, ?)", uuidToBytes(normal), Timestamp.valueOf(withinWindow), Timestamp.valueOf(withinWindow))

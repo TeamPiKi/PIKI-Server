@@ -6,8 +6,8 @@ import org.springframework.stereotype.Component
 // 기본 프로필 아바타 URL 발급. 4종 기본 아바타는 S3 이미지 버킷의 `defaults/user-profile-{n}.png` (n=1..COUNT) 로
 // 사전 업로드돼 있고(이미지 파일 자체는 운영에서 업로드), 여기선 그 공개 URL 만 조립한다.
 // publicBaseUrl 로 조립하므로 dev/prod 버킷 차이를 흡수한다(프로필 업로드와 같은 버킷이라 별도 주소 불필요).
-// 탈퇴 tombstone 아바타(deleted)도 같은 `defaults/` 아래 1종으로 함께 발급한다 — 위 랜덤 4종과는 다른 축이라
-// COUNT 범위에 넣지 않고 별도 메서드로 둔다(랜덤이 탈퇴 아바타를 뽑으면 안 된다).
+// 탈퇴 tombstone 아바타(deleted)와 게스트 마스킹 아바타(masked)도 같은 `defaults/` 아래 1종씩 함께 발급한다 —
+// 위 랜덤 4종과는 다른 축이라 COUNT 범위에 넣지 않고 별도 메서드로 둔다(랜덤이 이 둘을 뽑으면 안 된다).
 @Component
 class DefaultProfileImages(
     private val s3Properties: S3Properties,
@@ -26,11 +26,22 @@ class DefaultProfileImages(
     // 식별 가능한 프사를 지우되 빈 값이 아니라 "탈퇴한 유저" 를 나타내는 전용 아바타로 덮는다.
     fun deleted(): String = "${s3Properties.publicBaseUrl.trimEnd('/')}/$KEY_PREFIX/$DELETED_FILENAME.$EXTENSION"
 
+    // 게스트에게 가려진 참여자의 아바타 공개 URL. 그룹 결과에서 남이 누구인지 감춰 회원가입을 유도하되,
+    // 결과 자체는 보이게 둔다.
+    //
+    // 현재 업로드된 그림은 탈퇴 아바타와 동일하지만(둘 다 물음표), 두 상태가 한 화면에 같이 뜨지 않아 혼동이 없다 —
+    // 게스트에겐 탈퇴 여부를 false 로 덮어 내리므로 게스트가 보는 "?" 는 전부 "로그인하면 보임" 하나뿐이고,
+    // 회원에겐 마스킹이 걸리지 않으므로 회원이 보는 "?" 는 전부 "탈퇴한 유저" 다.
+    // 그래도 키를 갈라 두는 건 의미가 다른 두 상태라서다 — 한쪽 그림만 바꾸고 싶어질 때 파일 교체로 끝나야 한다.
+    // deleted() 를 그대로 재사용하면 그 시점에 코드를 고쳐야 하고, 그 전까지 두 의미가 한 URL 에 묶인다.
+    fun masked(): String = "${s3Properties.publicBaseUrl.trimEnd('/')}/$KEY_PREFIX/$MASKED_FILENAME.$EXTENSION"
+
     companion object {
         const val COUNT = 4
         const val KEY_PREFIX = "defaults"
         const val FILENAME_PREFIX = "user-profile-"
         const val DELETED_FILENAME = "user-deleted"
+        const val MASKED_FILENAME = "user-masked"
         const val EXTENSION = "png"
     }
 }

@@ -34,6 +34,7 @@ interface TournamentRepository {
 
     fun findBySourceTournamentId(sourceTournamentId: Long): List<Tournament>
 
+
     fun findTournamentByInviteCode(code: String): Tournament?
 
     fun existsTournamentByInviteCode(code: String): Boolean

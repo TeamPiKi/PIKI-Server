@@ -1,6 +1,7 @@
 package com.depromeet.piki.user.service
 
 import com.depromeet.piki.common.storage.ImageStorage
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.image.service.ImagePresignService
 import com.depromeet.piki.image.service.dto.PresignedRawUpload
 import com.depromeet.piki.user.domain.IdentityType
@@ -36,11 +37,13 @@ class ProfileUpdateService(
     fun presignProfileImage(
         userId: UUID,
         contentType: String,
+        contentLength: Long?,
     ): PresignedRawUpload {
         requireMemberForProfileImage(userId)
         return imagePresignService.presignRawUpload(
             extension = ProfileImageFile.extensionForMimeType(contentType),
             contentType = contentType,
+            size = UploadSize.ofOrNull(contentLength),
         )
     }
 

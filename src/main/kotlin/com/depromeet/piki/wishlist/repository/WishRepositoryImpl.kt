@@ -1,6 +1,5 @@
 package com.depromeet.piki.wishlist.repository
 
-import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.wishlist.domain.Wish
 import com.depromeet.piki.wishlist.domain.WishCursor
 import org.springframework.data.domain.Limit
@@ -14,6 +13,11 @@ class WishRepositoryImpl(
     override fun save(wish: Wish): Wish = wishJpaRepository.save(wish)
 
     override fun hardDeleteAllByUserId(userId: UUID): Int = wishJpaRepository.hardDeleteAllByUserId(userId)
+
+    override fun reparentItem(
+        fromItemId: Long,
+        toItemId: Long,
+    ): Int = wishJpaRepository.reparentItem(fromItemId, toItemId)
 
     override fun countByIdsAndUserId(
         ids: List<Long>,
@@ -50,13 +54,8 @@ class WishRepositoryImpl(
         userId: UUID,
     ): List<Wish> = wishJpaRepository.findByItemIdInAndUserIdAndDeletedAtIsNull(itemIds, userId)
 
-    override fun findUserIdsBySnapshotId(snapshotId: Long): List<UUID> = wishJpaRepository.findUserIdsBySnapshotId(snapshotId)
-
     override fun findOwnerWishIdsBySnapshotId(snapshotId: Long): List<WishOwnerView> =
         wishJpaRepository.findOwnerWishIdsBySnapshotId(snapshotId)
 
-    override fun findOwnerWishIdsByItemIdAndStatuses(
-        itemId: Long,
-        statuses: Collection<ItemStatus>,
-    ): List<WishOwnerView> = wishJpaRepository.findOwnerWishIdsByItemIdAndStatuses(itemId, statuses)
+    override fun findCardsByItemId(itemId: Long): List<WishCardView> = wishJpaRepository.findCardsByItemId(itemId)
 }

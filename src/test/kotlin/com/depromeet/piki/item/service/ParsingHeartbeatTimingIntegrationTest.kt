@@ -39,7 +39,7 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
     @Test
     fun `박동(renew)은 소유권을 쥔 PROCESSING 의 updated_at 을 밀어 stale 판정에서 빼낸다`() {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/touch-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
         try {
             // 워커가 실행에 진입해 소유권을 획득한 상태를 재현한다 (attempt 0 -> 1).
@@ -61,7 +61,7 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
     fun `beat 는 소유권을 쥔 산 항목을 갱신해 stale 에서 빼고 레지스트리에 유지한다`() {
         // renew 직접 호출이 아니라 @Scheduled 진입점 beat() 를 경유해 정상 갱신 분기(1행 매치 → 유지)를 회귀로 고정한다.
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/beat-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0
         val snapshotId = snapshot.getId()
         try {
             // 워커가 실행에 진입해 소유권을 획득한 상태를 재현한다 (attempt 0 -> 1).
@@ -84,7 +84,7 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
     @Test
     fun `소유권이 넘어간 행에 대한 옛 시도의 박동은 0행이고 beat 가 그 좀비를 레지스트리에서 제거한다`() {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/zombie-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0
         val snapshotId = snapshot.getId()
         try {
             // 소유권이 다른 시도로 넘어간 상황 재현 — 행은 attempt 2 이고, updated_at 은 now(신선)라 배경 recover 가 가로채지 않는다.

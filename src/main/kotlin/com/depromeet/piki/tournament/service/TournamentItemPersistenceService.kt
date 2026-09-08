@@ -4,6 +4,7 @@ import com.depromeet.piki.item.domain.Item
 import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.item.service.ItemIdentityRecorder
 import com.depromeet.piki.item.service.ItemSharingService
@@ -97,7 +98,7 @@ class TournamentItemPersistenceService(
         }
         shared?.let { sharedItem ->
             // attach 메타(reused·refreshNeeded)는 위시 등록 응답부터 노출한다(#853) — 토너먼트 응답 노출은 클라 요구가 생기면.
-            val attachment = itemSharingService.resolveAttachment(sharedItem.getId(), link)
+            val attachment = itemSharingService.resolveAttachment(sharedItem.getId(), link, requestedBy = userId)
             // 정체성 중복 검사·반환 itemId 는 실제로 붙은 attachment.item 기준 — 병합 재시도 경합에선 별칭으로
             // 찾은 shared(loser)와 다르고(승자로 재해석), 이 기준이어야 반환 itemId 와 snapshot 소속이 일치한다.
             existingByItemId[attachment.item.getId()]?.let {
@@ -159,7 +160,7 @@ class TournamentItemPersistenceService(
     ): PersistedTournamentItem {
         val saved = itemRepository.save(item)
         itemIdentityRecorder.recordRegistrationAlias(saved)
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(saved.getId()))
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(saved.getId(), requestedBy = userId))
         val tournamentItem =
             tournamentItemRepository.save(
                 TournamentItem(tournamentId = tournamentId, userId = userId, snapshotId = snapshot.getId()),
@@ -207,7 +208,7 @@ class TournamentItemPersistenceService(
                     price = price,
                     imageUrl = imageUrl,
                     currency = currency,
-                    editedBy = userId,
+                    createdBy = userId,
                 ),
             )
         tournamentItem.repinSnapshot(manual.getId())
@@ -241,7 +242,7 @@ class TournamentItemPersistenceService(
             price = price,
             imageUrl = PRE_UPLOAD_VALIDATION_IMAGE_URL,
             currency = currency,
-            editedBy = userId,
+            createdBy = userId,
         )
     }
 
@@ -252,7 +253,7 @@ class TournamentItemPersistenceService(
         val pointer =
             itemSnapshotRepository.findById(tournamentItem.snapshotId)
                 ?: error("snapshot 없음 — snapshotId=${tournamentItem.snapshotId}")
-        return itemDisplayService.resolveDisplay(pointer)
+        return itemDisplayService.resolveDisplay(DisplayCard.waitingOn(pointer, owner = tournamentItem.userId))
     }
 
     // 이미지 업로드(외부 호출) 전에 권한·상태·복제를 미리 검증해 거부될 요청이 S3 에 orphan raw 를 남기지 않게 한다.

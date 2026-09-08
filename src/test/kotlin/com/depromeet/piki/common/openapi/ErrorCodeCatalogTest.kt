@@ -92,6 +92,8 @@ class ErrorCodeCatalogTest {
         assertTrue(md.contains("### UPLOAD"), md)
         assertTrue(md.contains("| UPLOAD-001 | 400 | 올바르지 않은 이미지 업로드 정보예요. 업로드를 다시 시도해 주세요. |"), md)
         assertTrue(md.contains("| UPLOAD-002 | 400 | 아직 업로드되지 않은 이미지예요. 업로드를 마친 뒤 다시 시도해 주세요. |"), md)
+        assertTrue(md.contains("| UPLOAD-003 | 400 | 이미지는 5MB 까지 올릴 수 있어요. |"), md)
+        assertTrue(md.contains("| UPLOAD-004 | 400 | 이미지 크기 정보가 올바르지 않아요. 업로드를 다시 시도해 주세요. |"), md)
 
         assertTrue(md.contains("### PRODUCTIMAGE"), md)
         assertTrue(md.contains("| PRODUCTIMAGE-001 | 400 | 빈 이미지 파일은 올릴 수 없어요. |"), md)
