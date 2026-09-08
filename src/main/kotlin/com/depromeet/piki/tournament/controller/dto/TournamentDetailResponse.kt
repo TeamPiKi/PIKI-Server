@@ -64,6 +64,7 @@ data class TournamentDetailResponse(
         }
     }
 
+    // 배열 순서가 계약이다 — 본인 → 주최자 → 그 외 참여자(입장 순). 받은 순서대로 그리면 된다.
     @JsonInclude(JsonInclude.Include.NON_NULL)
     data class ParticipantResponse(
         val userId: UUID,
@@ -71,11 +72,13 @@ data class TournamentDetailResponse(
         val profileImage: String,
         // 탈퇴 유저면 true. 닉네임·프로필이 익명값이라 FE 가 이 플래그로 "유저 알수없음" 을 렌더한다.
         val isWithdrawn: Boolean,
+        // 주최자면 true. 프로필 우측 하단에 HostBadge 를 그린다. 상위의 isOwner("내가 주최자냐")와 다른 값이다.
+        val isHost: Boolean,
         val itemCount: Int,
     ) {
         companion object {
             fun from(p: TournamentDetail.ParticipantDetail): ParticipantResponse =
-                ParticipantResponse(p.userId, p.nickname, p.profileImage, p.isWithdrawn, p.itemCount)
+                ParticipantResponse(p.userId, p.nickname, p.profileImage, p.isWithdrawn, p.isHost, p.itemCount)
         }
     }
 

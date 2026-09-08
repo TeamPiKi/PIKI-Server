@@ -34,6 +34,9 @@ interface TournamentRepository {
 
     fun findBySourceTournamentId(sourceTournamentId: Long): List<Tournament>
 
+    // 위와 같되 여러 ROOT 를 한 번에 — 목록 카드의 "플레이한 N" 이 카드마다 클론을 훑지 않게 한다(#1062).
+    fun findBySourceTournamentIds(sourceTournamentIds: List<Long>): List<Tournament>
+
     fun findTournamentByInviteCode(code: String): Tournament?
 
     fun existsTournamentByInviteCode(code: String): Boolean

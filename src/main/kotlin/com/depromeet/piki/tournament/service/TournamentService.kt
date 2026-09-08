@@ -384,13 +384,6 @@ class TournamentService(
                 // 파생 결과를 박제하므로 진행·완료 분기는 포인터 그대로 읽는다.
                 val snapshotById = displayedSnapshotsOf(tournamentItems)
                 val tournamentUsers = tournamentUserRepository.findByTournamentId(tournamentId)
-                val userById = userRepository
-                    .findByIds(
-                        tournamentUsers
-                            .map { it.userId }
-                            .toSet(),
-                    )
-                    .associateBy { it.id }
                 val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
                 TournamentDetail.Pending(
                     tournamentId = tournament.getId(),
@@ -398,19 +391,12 @@ class TournamentService(
                     inviteCode = tournament.inviteCode,
                     inviteExpiresAt = tournament.inviteExpiresAt,
                     items = tournamentItems.map { toItemDetail(it, snapshotById) },
-                    participants =
-                        tournamentUsers.mapNotNull { tu ->
-                            userById[tu.userId]?.let { user ->
-                                TournamentDetail.ParticipantDetail(
-                                    userId = user.id,
-                                    // 토너먼트 닉네임 우선, 레거시(NULL)면 프로필 닉네임 폴백(#1018)
-                                    nickname = tu.nickname ?: user.nickname,
-                                    profileImage = user.profileImage,
-                                    isWithdrawn = !user.isActive(),
-                                    itemCount = itemCountByUserId[tu.userId] ?: 0,
-                                )
-                            }
-                        },
+                    participants = toParticipantDetails(
+                        tournamentUsers,
+                        tournament.ownerTournamentUserId,
+                        userId,
+                        itemCountByUserId,
+                    ),
                     isOwner = isOwner,
                     isRoot = isRoot,
                     sourceTournamentId = tournament.sourceTournamentId,
@@ -434,7 +420,7 @@ class TournamentService(
                 // ROOT 가 IN_PROGRESS 인데 멤버 본인의 히스토리가 없으면, CLONE 을 아직 시작하지 않은 대기 상태다.
                 // ROOT(sourceTournamentId 없음)면 pending+ownerStarted 로 "주최자가 시작했습니다, 지금 시작하세요" UI 를 분기한다.
                 if (!isOwner && histories.isEmpty()) {
-                    tournament.sourceTournamentId ?: return buildMemberPendingOnRoot(tournament)
+                    tournament.sourceTournamentId ?: return buildMemberPendingOnRoot(tournament, userId)
                 }
                 // 히스토리는 currentRound ASC, id ASC 정렬이라 lastOrNull()은 라운드가 바뀌면 틀림 — ID 최대값이 가장 최근 매치
                 val lastHistory = histories
@@ -493,7 +479,7 @@ class TournamentService(
                     val myClone = clones.firstOrNull { ownerTUById[it.ownerTournamentUserId]?.userId == userId }
                     // 옵션 A: 아직 본인 CLONE 을 시작하지 않은 참여자는 ROOT 가 COMPLETED 여도 403 대신
                     // 시작 가능 상태(pending+ownerStarted)를 받아 본인 CLONE 을 만들어 진행할 수 있다.
-                        ?: return buildMemberPendingOnRoot(tournament)
+                        ?: return buildMemberPendingOnRoot(tournament, userId)
                     val myCloneOwnerTU = ownerTUById.getValue(myClone.ownerTournamentUserId)
                     if (!myCloneOwnerTU.isCompleted()) throw TournamentException.forbiddenTournament()
                     val cloneHistories = tournamentRepository.findHistoriesByTournamentIdAndTournamentUserId(
@@ -506,23 +492,30 @@ class TournamentService(
         }
     }
 
-    // 아직 본인 CLONE 을 시작하지 않은 멤버에게 내려주는 "시작 가능" 대기 응답.
-    // ROOT 가 IN_PROGRESS·COMPLETED 어느 쪽이든, 멤버는 ROOT 아이템·참여자를 보며 본인 플레이를 시작할 수 있다.
-    private fun buildMemberPendingOnRoot(root: Tournament): TournamentDetail.Pending {
-        val tournamentItems = tournamentItemRepository.findAllByTournamentId(root.getId())
-        val snapshotById = snapshotsOf(tournamentItems)
-        val tournamentUsers = tournamentUserRepository.findByTournamentId(root.getId())
+    // 참가자 목록 조립 — 주최자 배지(isHost)와 노출 순서를 한 자리에서 책임진다(#1062).
+    // 대기실과 후보 담기 배너가 같은 목록을 쓰므로, 두 진입점(getTournamentDetail·buildMemberPendingOnRoot)이 이 함수를 공유한다.
+    //
+    // 순서는 본인 → 주최자 → 그 외 참여자(입장 순)로 서버가 확정해 내린다. 클라가 정렬하면 화면마다 규칙이 갈리고,
+    // "본인" 판정에 필요한 요청자 신원이 응답에는 없어 클라가 userId 를 비교해야 한다.
+    // 내가 주최자면 두 조건을 모두 만족해 자연히 맨 앞이다.
+    // 입장 순은 TU 의 auto-increment id — 참여 시각 컬럼이 따로 없고, 행 생성 순서가 곧 입장 순서다.
+    private fun toParticipantDetails(
+        tournamentUsers: List<TournamentUser>,
+        ownerTournamentUserId: Long,
+        viewerId: UUID,
+        itemCountByUserId: Map<UUID, Int>,
+    ): List<TournamentDetail.ParticipantDetail> {
         val userById = userRepository
             .findByIds(tournamentUsers.map { it.userId }.toSet())
             .associateBy { it.id }
-        val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
-        return TournamentDetail.Pending(
-            tournamentId = root.getId(),
-            name = root.name,
-            inviteCode = root.inviteCode,
-            inviteExpiresAt = root.inviteExpiresAt,
-            items = tournamentItems.map { toItemDetail(it, snapshotById) },
-            participants = tournamentUsers.mapNotNull { tu ->
+        return tournamentUsers
+            .sortedWith(
+                compareBy(
+                    { it.userId != viewerId },
+                    { it.getId() != ownerTournamentUserId },
+                    { it.getId() },
+                ),
+            ).mapNotNull { tu ->
                 userById[tu.userId]?.let { user ->
                     TournamentDetail.ParticipantDetail(
                         userId = user.id,
@@ -530,10 +523,35 @@ class TournamentService(
                         nickname = tu.nickname ?: user.nickname,
                         profileImage = user.profileImage,
                         isWithdrawn = !user.isActive(),
+                        isHost = tu.getId() == ownerTournamentUserId,
                         itemCount = itemCountByUserId[tu.userId] ?: 0,
                     )
                 }
-            },
+            }
+    }
+
+    // 아직 본인 CLONE 을 시작하지 않은 멤버에게 내려주는 "시작 가능" 대기 응답.
+    // ROOT 가 IN_PROGRESS·COMPLETED 어느 쪽이든, 멤버는 ROOT 아이템·참여자를 보며 본인 플레이를 시작할 수 있다.
+    private fun buildMemberPendingOnRoot(
+        root: Tournament,
+        viewerId: UUID,
+    ): TournamentDetail.Pending {
+        val tournamentItems = tournamentItemRepository.findAllByTournamentId(root.getId())
+        val snapshotById = snapshotsOf(tournamentItems)
+        val tournamentUsers = tournamentUserRepository.findByTournamentId(root.getId())
+        val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
+        return TournamentDetail.Pending(
+            tournamentId = root.getId(),
+            name = root.name,
+            inviteCode = root.inviteCode,
+            inviteExpiresAt = root.inviteExpiresAt,
+            items = tournamentItems.map { toItemDetail(it, snapshotById) },
+            participants = toParticipantDetails(
+                tournamentUsers,
+                root.ownerTournamentUserId,
+                viewerId,
+                itemCountByUserId,
+            ),
             isOwner = false,
             isRoot = root.isRoot(),
             sourceTournamentId = null,
@@ -598,28 +616,25 @@ class TournamentService(
         // owner(내가 만든 ROOT·내 CLONE)는 전역 status 그대로, 참여자(클론 없는 ROOT)는 완료돼도 나에겐 IN_PROGRESS 로 캡한다.
         // ownedOnly=true(홈)는 참여 갈래를 꺼 "내가 owner 인 것" 만 노출한다. status 와는 AND 로 걸린다.
         // playType 은 파생 상태라 앱에서 거르면 limit 이 먼저 걸려 요구한 개수보다 적게 나온다 (쿼리에서 함께 판정).
-        // 참가자·프로필은 남은 토너먼트에 대해서만 읽는다 (홈 카드 limit=3 이 내 전체 이력을 선로드하지 않게).
+        // 참가자·썸네일은 남은 토너먼트에 대해서만 읽는다 (홈 카드 limit=3 이 내 전체 이력을 선로드하지 않게).
         val limited = tournamentRepository.findVisibleByUserId(userId, statuses, playType, ownedOnly, limit)
         if (limited.isEmpty()) return emptyList()
 
-        val tournamentUsers = tournamentUserRepository.findByTournamentIds(limited.map { it.getId() })
-        val userIds =
-            tournamentUsers
-                .map { it.userId }
-                .toSet()
-        val profileImageByUserId =
-            userRepository
-                .findByIds(userIds)
-                .associate { it.id to it.profileImage }
-        val profileImagesByTournamentId =
-            tournamentUsers
-                .groupBy { it.tournamentId }
-                .mapValues { (_, users) -> users.mapNotNull { profileImageByUserId[it.userId] } }
-
-        // 썸네일도 남은 토너먼트에 대해서만 조회한다 (잘릴 것의 아이템은 안 읽음).
-        // CLONE 은 자기 tournament_item 이 없고 sourceTournamentId(ROOT)의 아이템을 쓰므로, ROOT id 로 조회한 뒤 CLONE 에 매핑한다.
+        // 썸네일·인원수 모두 ROOT 기준이다. CLONE 은 자기 tournament_item 도 참여자도 없고 ROOT 의 것을 이어받으므로,
+        // 카드가 CLONE 이어도 "그 토너먼트에 몇 명이 담고 몇 명이 플레이했나" 는 ROOT 를 세야 한다.
         val rootIdByTournamentId = limited.associate { it.getId() to (it.sourceTournamentId ?: it.getId()) }
-        val thumbnailsByRootId = thumbnailUrlsByTournamentId(rootIdByTournamentId.values.distinct())
+        val rootIds = rootIdByTournamentId.values.distinct()
+        val thumbnailsByRootId = thumbnailUrlsByTournamentId(rootIds)
+
+        // 카드 tournamentId 와 ROOT id 를 한 번에 읽어 카드가 ROOT 일 때 같은 조회를 두 번 하지 않는다.
+        val tournamentUsers = tournamentUserRepository
+            .findByTournamentIds((limited.map { it.getId() } + rootIds).distinct())
+        // "함께 담은 N" — 참여자 프로필을 겹쳐 보여주던 자리를 숫자로 바꾼 것이라 모집단도 그대로 참여자다(#1062).
+        val participantCountByRootId = tournamentUsers
+            .filter { it.tournamentId in rootIds }
+            .groupingBy { it.tournamentId }
+            .eachCount()
+        val playedCountByRootId = playedCountByRootId(rootIds)
 
         // 내 tournament_user id 를 토너먼트별로 — effectiveStatus 계산에서 "내가 이 방의 owner 냐" 판정에 쓴다.
         val myTournamentUserIdByTournamentId =
@@ -638,12 +653,40 @@ class TournamentService(
                     tournament.status == TournamentStatus.COMPLETED -> TournamentStatus.IN_PROGRESS
                     else -> tournament.status
                 }
+            val rootId = rootIdByTournamentId.getValue(tournament.getId())
             TournamentSummary.of(
                 tournament = tournament,
-                participantProfileImages = profileImagesByTournamentId[tournament.getId()] ?: emptyList(),
-                thumbnailUrls = thumbnailsByRootId[rootIdByTournamentId.getValue(tournament.getId())] ?: emptyList(),
+                participantCount = participantCountByRootId[rootId] ?: 0,
+                playedCount = playedCountByRootId[rootId] ?: 0,
+                thumbnailUrls = thumbnailsByRootId[rootId] ?: emptyList(),
                 effectiveStatus = effectiveStatus,
             )
+        }
+    }
+
+    // ROOT 별 "플레이한 N" — 플레이를 끝까지 마친 고유 사용자 수(#1062). 시작만 하고 이탈한 사람은 빠진다.
+    // 완주 판정은 그룹 결과와 같은 기준이다: ROOT 참여자는 completedAt, CLONE 은 그 토너먼트가 COMPLETED 인지.
+    // userId 로 dedup 하는 이유는 주최자가 ROOT 참여 행과 본인 CLONE 을 둘 다 가질 수 있어서다 — 행을 세면 한 명이 둘로 잡힌다.
+    // 배치 조회 3회로 끝내 카드 수만큼 클론을 훑는 N+1 을 만들지 않는다.
+    private fun playedCountByRootId(rootIds: List<Long>): Map<Long, Int> {
+        if (rootIds.isEmpty()) return emptyMap()
+        val completedRootTUsByRootId = tournamentUserRepository
+            .findCompletedByTournamentIds(rootIds)
+            .groupBy { it.tournamentId }
+        val completedClonesByRootId = tournamentRepository
+            .findBySourceTournamentIds(rootIds)
+            .filter { it.isCompleted() }
+            .groupBy { it.sourceTournamentId }
+        val cloneOwnerTUById = tournamentUserRepository
+            .findByIds(completedClonesByRootId.values.flatten().map { it.ownerTournamentUserId }.toSet())
+            .associateBy { it.getId() }
+        return rootIds.associateWith { rootId ->
+            buildSet {
+                completedRootTUsByRootId[rootId].orEmpty().forEach { add(it.userId) }
+                completedClonesByRootId[rootId].orEmpty().forEach { clone ->
+                    cloneOwnerTUById[clone.ownerTournamentUserId]?.let { add(it.userId) }
+                }
+            }.size
         }
     }
 

@@ -50,6 +50,13 @@ interface TournamentApi {
             PENDING 하나이며, 그 사이 같은 토너먼트가 SOLO 목록에서 SOCIAL 목록으로 옮겨갈 수 있다.
             각 항목의 thumbnailUrls 는 카드 대표 썸네일 URL 배열이다 — 최근 등록 아이템 중 이미지가 준비된(READY) 것 최대 2장.
             이미지가 준비된 아이템이 없으면 빈 배열이며, limit 유무와 무관하게 항상 포함된다.
+
+            카드에 뜨는 인원수 두 개는 다음과 같다. 참여자 프로필 이미지 배열(participantProfileImages)은 이 값들로 대체되어 사라졌다.
+            - participantCount ("함께 담은 N"): 그 토너먼트의 참여자 수. 아이템을 아직 안 담은 참여자도 포함한다.
+            - playedCount ("플레이한 N"): 플레이를 끝까지 마친 사람 수. 시작만 하고 이탈한 사람은 빠지며, 아무도 완주 안 했으면 0이다.
+              전체 결과 영수증에 나오는 인원과 같은 기준이다.
+
+            CLONE(플레이 링크로 만든 내 사본)도 두 값은 원본(ROOT) 기준으로 내려간다. 같은 토너먼트를 보는 카드이기 때문이다.
         """,
     )
     @ApiResponses(
@@ -119,6 +126,10 @@ interface TournamentApi {
               - 각 아이템에 status 포함 (READY / PENDING / PROCESSING / FAILED). PENDING·PROCESSING 이면 name·price·imageUrl 은 null 이라 응답에서 제외됨
               - 각 아이템에 userId 포함 (해당 아이템을 담은 참여자의 userId)
               - 각 참여자에 itemCount 포함 (해당 참여자가 이 토너먼트에 담은 아이템 수)
+              - 각 참여자에 isHost 포함 (이 토너먼트를 만든 주최자면 true). 클라이언트는 이 값으로 프로필 우측 하단에 HostBadge 를 그린다.
+                상위의 isOwner("요청자가 주최자냐")와 다른 값이다 - isHost 는 참여자 각각에 대한 사실이다
+              - 참여자 배열의 순서가 계약이다: 본인 → 주최자 → 그 외 참여자(입장 순). 받은 순서대로 그리면 되고 클라이언트가 다시 정렬하지 않는다.
+                요청자가 주최자면 두 조건을 모두 만족해 맨 앞 하나로 합쳐진다
               - pending.ownerStarted = false
             - IN_PROGRESS: 요청자 역할에 따라 두 가지 응답이 있다.
               - 소유자(isOwner=true) 또는 이미 매치를 시작한 멤버: inProgress 필드

@@ -57,11 +57,9 @@ class TournamentApiExamples(
                                             name = "내 토너먼트",
                                             status = TournamentStatus.PENDING,
                                             createdAt = LocalDateTime.of(2026, 5, 22, 12, 0, 0),
-                                            participantProfileImages =
-                                                listOf(
-                                                    "https://cdn.example.com/profiles/user1.jpg",
-                                                    "https://cdn.example.com/profiles/user2.jpg",
-                                                ),
+                                            // 카드의 "함께 담은 2 | 플레이한 0" — 아직 아무도 완주하지 않은 PENDING 카드다.
+                                            participantCount = 2,
+                                            playedCount = 0,
                                             thumbnailUrls =
                                                 listOf(
                                                     "https://cdn.example.com/items/item1.jpg",
@@ -390,6 +388,7 @@ class TournamentApiExamples(
                                                             nickname = "참여자1",
                                                             profileImage = "https://cdn.example.com/profiles/user1.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = true,
                                                             itemCount = 2,
                                                         ),
                                                     ),
@@ -445,6 +444,7 @@ class TournamentApiExamples(
                                                             nickname = "주최자",
                                                             profileImage = "https://cdn.example.com/profiles/user1.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = true,
                                                             itemCount = 2,
                                                         ),
                                                         TournamentDetailResponse.ParticipantResponse(
@@ -452,6 +452,7 @@ class TournamentApiExamples(
                                                             nickname = "참여자",
                                                             profileImage = "https://cdn.example.com/profiles/user2.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = false,
                                                             itemCount = 0,
                                                         ),
                                                     ),
