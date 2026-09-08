@@ -635,6 +635,15 @@ class TournamentService(
             .groupingBy { it.tournamentId }
             .eachCount()
         val playedCountByRootId = playedCountByRootId(rootIds)
+        // DEPRECATED — 카드가 인원수로 바뀌어 이 배열은 더 이상 쓰이지 않는다(#1062). 앱이 전환해 배포될 때까지만
+        // 함께 내린다. 구버전 앱이 non-optional 로 읽고 있으면 필드가 사라지는 순간 목록 화면이 통째로 안 뜬다.
+        // 값·모집단은 옛 동작 그대로 둔다(카드 자신의 tournamentId 기준) — 전환기 호환이 목적이라 여기서 의미를 바꾸지 않는다.
+        val profileImageByUserId = userRepository
+            .findByIds(tournamentUsers.map { it.userId }.toSet())
+            .associate { it.id to it.profileImage }
+        val profileImagesByTournamentId = tournamentUsers
+            .groupBy { it.tournamentId }
+            .mapValues { (_, users) -> users.mapNotNull { profileImageByUserId[it.userId] } }
 
         // 내 tournament_user id 를 토너먼트별로 — effectiveStatus 계산에서 "내가 이 방의 owner 냐" 판정에 쓴다.
         val myTournamentUserIdByTournamentId =
@@ -656,6 +665,7 @@ class TournamentService(
             val rootId = rootIdByTournamentId.getValue(tournament.getId())
             TournamentSummary.of(
                 tournament = tournament,
+                participantProfileImages = profileImagesByTournamentId[tournament.getId()] ?: emptyList(),
                 participantCount = participantCountByRootId[rootId] ?: 0,
                 playedCount = playedCountByRootId[rootId] ?: 0,
                 thumbnailUrls = thumbnailsByRootId[rootId] ?: emptyList(),

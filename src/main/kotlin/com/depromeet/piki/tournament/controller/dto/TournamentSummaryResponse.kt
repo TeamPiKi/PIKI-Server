@@ -9,6 +9,9 @@ data class TournamentSummaryResponse(
     val name: String,
     val status: TournamentStatus,
     val createdAt: LocalDateTime,
+    // DEPRECATED — participantCount·playedCount 로 대체됐다. 앱이 새 필드로 전환해 배포되면 제거한다.
+    // 그전까지 함께 내리는 이유는 구버전 앱이 이 필드를 non-optional 로 읽고 있으면 목록 화면이 통째로 안 뜨기 때문이다.
+    val participantProfileImages: List<String>,
     // 카드의 "함께 담은 N" — 그 토너먼트 참여자 수.
     val participantCount: Int,
     // 카드의 "플레이한 N" — 플레이를 끝까지 마친 사람 수(완주 기준). 아직 아무도 완주 안 했으면 0.
@@ -23,6 +26,7 @@ data class TournamentSummaryResponse(
                 name = summary.name,
                 status = summary.status,
                 createdAt = summary.createdAt,
+                participantProfileImages = summary.participantProfileImages,
                 participantCount = summary.participantCount,
                 playedCount = summary.playedCount,
                 thumbnailUrls = summary.thumbnailUrls,

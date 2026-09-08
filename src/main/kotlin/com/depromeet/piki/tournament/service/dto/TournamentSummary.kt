@@ -9,6 +9,9 @@ data class TournamentSummary(
     val name: String,
     val status: TournamentStatus,
     val createdAt: LocalDateTime,
+    // DEPRECATED — participantCount·playedCount 로 대체됐다(#1062). 앱이 새 필드로 전환해 배포될 때까지만 함께 내린다.
+    // 응답 필드 제거는 단계 배포(add → 양쪽 호환 → remove)로 나눈다는 원칙에 따라, 제거는 별도 PR 의 몫이다.
+    val participantProfileImages: List<String>,
     // 카드에 "함께 담은 N" 으로 뜨는 값 — 그 토너먼트의 참여자 수(#1062). 참여자 프로필을 겹쳐 보여주던 자리를
     // 숫자로 바꾼 것이라 모집단도 그대로 참여자다(아이템을 아직 안 담은 참여자도 함께 담는 중인 사람으로 센다).
     val participantCount: Int,
@@ -21,6 +24,7 @@ data class TournamentSummary(
     companion object {
         fun of(
             tournament: Tournament,
+            participantProfileImages: List<String>,
             participantCount: Int,
             playedCount: Int,
             thumbnailUrls: List<String>,
@@ -31,6 +35,7 @@ data class TournamentSummary(
                 name = tournament.name,
                 status = effectiveStatus,
                 createdAt = tournament.createdAt,
+                participantProfileImages = participantProfileImages,
                 participantCount = participantCount,
                 playedCount = playedCount,
                 thumbnailUrls = thumbnailUrls,

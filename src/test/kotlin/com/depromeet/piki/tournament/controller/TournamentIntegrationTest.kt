@@ -835,8 +835,9 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             .andExpect(jsonPath("$.data[0].name").isString)
             .andExpect(jsonPath("$.data[0].status").isString)
             .andExpect(jsonPath("$.data[0].createdAt").isString)
-            // 프사 배열은 카드에서 사라졌다(#1062) — 필드가 남아 있으면 클라가 옛 렌더를 유지해도 티가 안 난다.
-            .andExpect(jsonPath("$.data[0].participantProfileImages").doesNotExist())
+            // 프사 배열은 deprecated 지만 앱 전환 전까지 함께 내린다(#1062) — 지금 지우면 구버전 앱의 목록 화면이 통째로 깨진다.
+            // 이 단언이 깨지는 시점이 곧 "제거해도 되는가" 를 다시 물어야 하는 시점이다.
+            .andExpect(jsonPath("$.data[0].participantProfileImages[0]").value(userProfileImage))
             .andExpect(jsonPath("$.data[0].participantCount").value(1))
             // 만들기만 하고 아무도 플레이하지 않았으므로 0.
             .andExpect(jsonPath("$.data[0].playedCount").value(0))

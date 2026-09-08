@@ -57,6 +57,9 @@ class TournamentApiExamples(
                                             name = "내 토너먼트",
                                             status = TournamentStatus.PENDING,
                                             createdAt = LocalDateTime.of(2026, 5, 22, 12, 0, 0),
+                                            // DEPRECATED — 앱 전환 전까지만 함께 내린다. 카드는 아래 두 숫자를 쓴다.
+                                            participantProfileImages =
+                                                listOf(defaultProfileImages.urlOf(1), defaultProfileImages.urlOf(2)),
                                             // 카드의 "함께 담은 2 | 플레이한 0" — 아직 아무도 완주하지 않은 PENDING 카드다.
                                             participantCount = 2,
                                             playedCount = 0,
