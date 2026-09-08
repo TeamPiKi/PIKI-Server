@@ -1,8 +1,10 @@
 package com.depromeet.piki.notification.sse
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
+import com.depromeet.piki.notification.controller.dto.ClientHeartbeatRequest
 import com.depromeet.piki.notification.controller.dto.NotificationSsePayload
 import com.depromeet.piki.notification.domain.Notification
+import com.depromeet.piki.notification.domain.NotificationErrorCode
 import com.depromeet.piki.notification.domain.NotificationKind
 import com.depromeet.piki.notification.domain.NotificationRouting
 import com.depromeet.piki.notification.domain.NotificationType
@@ -11,14 +13,17 @@ import com.depromeet.piki.notification.repository.NotificationRepository
 import com.depromeet.piki.notification.service.NotificationChannel
 import com.depromeet.piki.support.IntegrationTestSupport
 import com.depromeet.piki.user.domain.IdentityType
+import jakarta.persistence.EntityManager
 import org.hamcrest.Matchers.notNullValue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.request
@@ -28,8 +33,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.context.WebApplicationContext
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import jakarta.persistence.EntityManager
 import tools.jackson.databind.ObjectMapper
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
@@ -51,6 +57,8 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
 
     @Autowired private lateinit var sseNotificationChannel: SseNotificationChannel
 
+    @Autowired private lateinit var localDelivery: LocalSseDelivery
+
     @Autowired private lateinit var channels: List<NotificationChannel>
 
     @Autowired private lateinit var notificationRepository: NotificationRepository
@@ -61,7 +69,8 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
 
     @Autowired private lateinit var objectMapper: ObjectMapper
 
-    private fun authHeader(userId: UUID): String = "Bearer ${jwtProvider.generateAccessToken(userId, IdentityType.MEMBER)}"
+    private fun authHeader(userId: UUID): String =
+        "Bearer ${jwtProvider.generateAccessToken(userId, IdentityType.MEMBER)}"
 
     private fun buildMockMvc(): MockMvc =
         MockMvcBuilders
@@ -319,6 +328,137 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         // Jackson3+kotlin module 은 isRead 필드명으로 직렬화한다(모듈 없는 Jackson2 였으면 "read" 라 이 키가 없다).
         assertTrue(node.has("isRead"))
     }
+
+    // #1057 양방향 하트비트. 구독 응답의 connect 이벤트에서 연결 번호를 읽어 하트비트 POST 로 되돌리는
+    // 클라이언트 흐름 그대로를 밟는다 - 번호가 실제 와이어에 실리고, 그 번호로 서버가 연결을 찾는 계약을 한 번에 잠근다.
+    @Test
+    fun `connect 이벤트 data 로 받은 연결 번호로 하트비트를 보내면 200 이다`() {
+        val userId = UUID.randomUUID()
+        val mockMvc = buildMockMvc()
+        try {
+            val result =
+                mockMvc
+                    .perform(
+                        get("/api/v1/notifications/subscribe")
+                            .header(HttpHeaders.AUTHORIZATION, authHeader(userId)),
+                    ).andExpect(request().asyncStarted())
+                    .andReturn()
+            val connectionId = connectionIdOf(result.response.contentAsString)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/notifications/heartbeat")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(userId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"connectionId":"$connectionId"}"""),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.data").doesNotExist())
+        } finally {
+            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+        }
+    }
+
+    @Test
+    fun `서버에 없는 연결 번호로 하트비트를 보내면 409 NOTIFICATION-002 다`() {
+        val userId = UUID.randomUUID()
+
+        buildMockMvc()
+            .perform(
+                post("/api/v1/notifications/heartbeat")
+                    .header(HttpHeaders.AUTHORIZATION, authHeader(userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"connectionId":"${UUID.randomUUID()}"}"""),
+            ).andExpect(status().isConflict)
+            .andExpect(jsonPath("$.code").value(NotificationErrorCode.UNKNOWN_CONNECTION.code))
+            .andExpect(jsonPath("$.detail").value(NotificationErrorCode.UNKNOWN_CONNECTION.message))
+    }
+
+    @Test
+    fun `다른 유저의 연결 번호로 하트비트를 보내면 모르는 연결과 같이 409 다`() {
+        val owner = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        val emitter = RecordingSseEmitter()
+        val connection = registry.register(owner, emitter)
+        try {
+            buildMockMvc()
+                .perform(
+                    post("/api/v1/notifications/heartbeat")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"connectionId":"${connection.id}"}"""),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value(NotificationErrorCode.UNKNOWN_CONNECTION.code))
+        } finally {
+            registry.unregister(owner, emitter)
+        }
+    }
+
+    // ApiExamples 의 400 detail 이 실제 응답과 같은지 실측으로 고정한다(@NotNull 위반은 필드 메시지만 detail 로 나간다).
+    @Test
+    fun `connectionId 없이 하트비트를 보내면 400 이고 detail 은 요청 DTO 의 메시지다`() {
+        buildMockMvc()
+            .perform(
+                post("/api/v1/notifications/heartbeat")
+                    .header(HttpHeaders.AUTHORIZATION, authHeader(UUID.randomUUID()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{}"),
+            ).andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.detail").value(ClientHeartbeatRequest.CONNECTION_ID_MESSAGE))
+    }
+
+    @Test
+    fun `토큰 없이 하트비트를 보내면 401 이다`() {
+        buildMockMvc()
+            .perform(
+                post("/api/v1/notifications/heartbeat")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"connectionId":"${UUID.randomUUID()}"}"""),
+            ).andExpect(status().isUnauthorized)
+    }
+
+    @Test
+    fun `서버 ping 은 heartbeat 이벤트에 그 연결의 번호를 실어 보낸다`() {
+        val userId = UUID.randomUUID()
+        val emitter = RecordingSseEmitter()
+        val connection = registry.register(userId, emitter)
+        try {
+            localDelivery.ping()
+
+            assertTrue(emitter.sentData.any { it is String && it.contains("event:heartbeat") })
+            assertTrue(emitter.sentData.contains(connection.id.toString()))
+        } finally {
+            registry.unregister(userId, emitter)
+        }
+    }
+
+    @Test
+    fun `클라이언트 하트비트가 임계값 넘게 끊긴 연결만 서버가 닫고 레지스트리에서 뺀다`() {
+        val userId = UUID.randomUUID()
+        val now = Instant.parse("2026-09-08T00:00:00Z")
+        val stale = RecordingSseEmitter()
+        val alive = RecordingSseEmitter()
+        registry.register(userId, stale, now)
+        val aliveConnection = registry.register(userId, alive, now)
+        registry.touch(aliveConnection.id, userId, now.plusSeconds(50))
+        try {
+            localDelivery.evictStale(now.plusSeconds(61), Duration.ofSeconds(60))
+
+            assertEquals(listOf<SseEmitter>(alive), registry.emittersOf(userId))
+            assertTrue(stale.completed)
+            assertFalse(alive.completed)
+        } finally {
+            registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
+        }
+    }
+
+    // MockMvc 응답 버퍼에 남은 SSE 와이어("event:connect\ndata:<uuid>")에서 연결 번호를 뽑는다.
+    private fun connectionIdOf(stream: String): UUID {
+        val match =
+            requireNotNull(
+                Regex("event:connect\\s*\\ndata:([0-9a-f-]{36})").find(stream),
+            ) { "connect 이벤트가 응답에 없다: $stream" }
+        return UUID.fromString(match.groupValues[1])
+    }
 }
 
 // send(SseEventBuilder) 를 가로채 실제 IO 없이 전송 내용을 기록한다. build() 가 내놓는 data 항목
@@ -326,7 +466,16 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
 private class RecordingSseEmitter : SseEmitter() {
     val sentData = CopyOnWriteArrayList<Any>()
 
+    @Volatile
+    var completed = false
+
     override fun send(builder: SseEmitter.SseEventBuilder) {
         builder.build().forEach { sentData.add(it.data) }
+    }
+
+    // 실제 요청 없이 만든 emitter 라 부모 complete() 는 handler 가 없어 상태만 바꾼다. 서버 선제 종료가 불렸는지만 기록한다.
+    override fun complete() {
+        completed = true
+        super.complete()
     }
 }

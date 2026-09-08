@@ -1,13 +1,20 @@
 package com.depromeet.piki.notification.controller
 
+import com.depromeet.piki.common.response.ApiResponseBody
+import com.depromeet.piki.notification.controller.dto.ClientHeartbeatRequest
+import com.depromeet.piki.notification.domain.NotificationException
 import com.depromeet.piki.notification.sse.SseEmitterRegistry
+import jakarta.validation.Valid
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.time.Instant
 import java.util.UUID
 
 @RestController
@@ -30,6 +37,11 @@ class NotificationSseController(
         // SSE 응답은 헤더가 이미 나가 committed 라 그 401 조차 쓰지 못해 서버 에러 로그 두 줄로 끝난다(#1029).
         // Spring 도 이 자리를 애플리케이션에 맡긴다 - StandardServletAsyncWebRequest.onError 는 등록된 콜백만
         // 부르고 스스로 dispatch 하지 않는다.
+        //
+        // 단, 이 complete() 는 하트비트 write 실패 쪽(sendOrEvict)이 먼저 결과를 설정한 뒤에는 무력화된다 - Spring 은
+        // async 결과를 한 번만 받는다. 그 경합에서 지면 ERROR 디스패치가 그대로 난다(2026-09-07 prod 실측). 그래서
+        // 서버가 클라이언트 하트비트 결측으로 먼저 닫는 경로(#1057, LocalSseDelivery.evictStale)를 두어 이 경합에
+        // 들어갈 기회 자체를 줄인다.
         emitter.onCompletion { registry.unregister(userId, emitter) }
         emitter.onError {
             registry.unregister(userId, emitter)
@@ -39,10 +51,11 @@ class NotificationSseController(
             registry.unregister(userId, emitter)
             emitter.complete()
         }
-        registry.register(userId, emitter)
+        val connection = registry.register(userId, emitter)
         // 최초 connect 이벤트로 응답 헤더를 즉시 flush 해 클라이언트가 "연결됨" 을 곧장 인지하게 한다.
+        // data 는 이 연결의 번호다 - 클라이언트가 하트비트 POST 에 되돌려 보내 연결 단위 생존 판정의 키가 된다(#1057).
         runCatching {
-            emitter.send(SseEmitter.event().name(EVENT_CONNECT).data("connected"))
+            emitter.send(SseEmitter.event().name(EVENT_CONNECT).data(connection.id.toString()))
         }.onFailure { e ->
             log.warn("SSE 최초 connect 전송 실패 userId={}", userId, e)
             registry.unregister(userId, emitter)
@@ -51,8 +64,18 @@ class NotificationSseController(
         return emitter
     }
 
+    @PostMapping("/heartbeat")
+    override fun heartbeat(
+        @AuthenticationPrincipal userId: UUID,
+        @Valid @RequestBody request: ClientHeartbeatRequest,
+    ): ApiResponseBody<Unit> {
+        val touched = registry.touch(request.connectionIdOrThrow(), userId, Instant.now())
+        if (!touched) throw NotificationException.unknownConnection()
+        return ApiResponseBody.ok()
+    }
+
     companion object {
-        // connect 이벤트 name. 알림(notification)·하트비트(주석)와 구분된다.
+        // connect 이벤트 name. 알림(notification)·heartbeat 와 구분된다.
         const val EVENT_CONNECT = "connect"
 
         // emitter 자체 타임아웃(30분). 만료되면 onTimeout 으로 정리되고 클라이언트가 재연결한다.

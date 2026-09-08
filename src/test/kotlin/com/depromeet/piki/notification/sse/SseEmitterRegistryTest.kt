@@ -3,11 +3,13 @@ package com.depromeet.piki.notification.sse
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // 레지스트리는 SSE 연결의 멤버십만 다루므로 Spring·DB 없이 단위로 망라한다(emitter 는 식별자로만 쓰고 전송하지 않는다).
@@ -59,8 +61,53 @@ class SseEmitterRegistryTest {
 
         assertTrue(registry.emittersOf(userId).isEmpty())
         var visited = 0
-        registry.forEach { _, _ -> visited++ }
+        registry.forEach { _ -> visited++ }
         assertEquals(0, visited)
+    }
+
+    @Test
+    fun `register 는 번호가 부여된 연결을 돌려주고 그 번호로 touch 할 수 있다`() {
+        val userId = UUID.randomUUID()
+        val now = Instant.parse("2026-09-08T00:00:00Z")
+
+        val connection = registry.register(userId, SseEmitter(), now)
+        val touched = registry.touch(connection.id, userId, now.plusSeconds(30))
+
+        assertTrue(touched)
+        assertEquals(now.plusSeconds(30), connection.lastSeenAt)
+    }
+
+    @Test
+    fun `모르는 번호나 다른 유저의 번호로 touch 하면 false 이고 시각도 바뀌지 않는다`() {
+        val owner = UUID.randomUUID()
+        val now = Instant.parse("2026-09-08T00:00:00Z")
+        val connection = registry.register(owner, SseEmitter(), now)
+
+        assertFalse(registry.touch(UUID.randomUUID(), owner, now.plusSeconds(30)))
+        assertFalse(registry.touch(connection.id, UUID.randomUUID(), now.plusSeconds(30)))
+        assertEquals(now, connection.lastSeenAt)
+    }
+
+    @Test
+    fun `unregister 한 연결의 번호는 더 이상 touch 되지 않는다`() {
+        val userId = UUID.randomUUID()
+        val emitter = SseEmitter()
+        val connection = registry.register(userId, emitter)
+
+        registry.unregister(userId, emitter)
+
+        assertFalse(registry.touch(connection.id, userId, Instant.now()))
+    }
+
+    @Test
+    fun `removeAll 은 그 유저의 연결 번호 색인까지 비운다`() {
+        val userId = UUID.randomUUID()
+        val connection = registry.register(userId, SseEmitter())
+
+        val removed = registry.removeAll(userId)
+
+        assertEquals(1, removed.size)
+        assertFalse(registry.touch(connection.id, userId, Instant.now()))
     }
 
     @Test
@@ -88,7 +135,7 @@ class SseEmitterRegistryTest {
         registry.register(userB, SseEmitter())
 
         val visited = mutableListOf<UUID>()
-        registry.forEach { userId, _ -> visited.add(userId) }
+        registry.forEach { connection -> visited.add(connection.userId) }
 
         assertEquals(2, visited.count { it == userA })
         assertEquals(1, visited.count { it == userB })

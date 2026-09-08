@@ -16,4 +16,9 @@ enum class NotificationErrorCode(
     override val message: String,
 ) : ErrorCode {
     INVALID_CURSOR("NOTIFICATION-001", ErrorCategory.INVALID_INPUT, "페이지를 불러오지 못했어요. 새로고침 해주세요."),
+
+    // 클라이언트 하트비트가 이 인스턴스에 없는 연결 번호를 실어 왔다(#1057) - 배포로 서버가 바뀌었거나 결측으로 이미
+    // 정리된 연결이다. 클라이언트는 이 code 를 받으면 SSE 를 재연결한다. CONFLICT 는 "요청은 멀쩡한데 서버 상태와
+    // 어긋난다" 는 뜻이라 INVALID_INPUT(요청 자체가 잘못됨)보다 맞다.
+    UNKNOWN_CONNECTION("NOTIFICATION-002", ErrorCategory.CONFLICT, "연결이 끊겼어요. 다시 연결해 주세요."),
 }

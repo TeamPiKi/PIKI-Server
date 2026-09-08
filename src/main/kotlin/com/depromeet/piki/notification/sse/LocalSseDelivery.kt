@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.io.IOException
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 // SSE 의 "로컬 write" 지점 — 레지스트리에 든 emitter 들에 실제로 이벤트를 흘려보내고, write 가 실패하는
@@ -67,10 +69,39 @@ class LocalSseDelivery(
         }
     }
 
-    // 전 연결에 주석 ping 을 보내 연결을 살아있게 유지하고, 끊긴 연결을 정리한다. (스케줄러가 주기 호출)
-    fun heartbeat() {
-        val ping = SseEmitter.event().comment("ping")
-        registry.forEach { userId, emitter -> sendOrEvict(userId, emitter, ping) }
+    // 전 연결에 서버 ping 을 보내 연결을 살아있게 유지하고, write 가 실패하는 연결을 정리한다. (스케줄러가 주기 호출)
+    //
+    // 주석(`: ping`)이 아니라 이름 붙은 이벤트로 보낸다(#1057). 주석은 표준 EventSource 에 아예 노출되지 않아 클라이언트가
+    // 스트림 생존을 관측할 수 없었다. data 에 연결 번호를 실어 클라이언트가 자기가 붙은 연결을 알고 하트비트 POST 에 되돌린다.
+    // data 없는 event 는 SSE 표준상 디스패치되지 않으므로 data 는 반드시 싣는다.
+    fun ping() {
+        registry.forEach { connection ->
+            val event = SseEmitter.event().name(EVENT_HEARTBEAT).data(connection.id.toString())
+            sendOrEvict(connection.userId, connection.emitter, event)
+        }
+    }
+
+    // 클라이언트 하트비트가 threshold 넘게 끊긴 연결을 서버가 먼저 닫는다(#1057). 앱 <-> nginx 소켓은 건강하므로
+    // 정상 ASYNC 종료로 조용히 끝난다 - 클라이언트가 끊어 FIN 이 먼저 오는 경로(#1029 의 ERROR 디스패치 경합)를 피한다.
+    // INFO 로 남기는 이유: 이 로그 건수가 서버 에러 알림 빈도와 함께 #1057 의 효과를 판정하는 지표다.
+    fun evictStale(
+        now: Instant,
+        threshold: Duration,
+    ) {
+        registry.forEach { connection ->
+            if (!connection.isStale(now, threshold)) return@forEach
+            log.info(
+                "SSE 클라이언트 하트비트 결측으로 연결 종료 userId={} connectionId={} lastSeenAt={}",
+                connection.userId,
+                connection.id,
+                connection.lastSeenAt,
+            )
+            registry.unregister(connection.userId, connection.emitter)
+            runCatching { connection.emitter.complete() }
+                .onFailure { e ->
+                    log.warn("SSE 결측 연결 종료 실패 userId={} connectionId={}", connection.userId, connection.id, e)
+                }
+        }
     }
 
     // write 실패 = 죽은 연결(클라이언트가 끊겼는데 onError/onCompletion 콜백이 아직 안 탄 경우 등).
@@ -100,8 +131,11 @@ class LocalSseDelivery(
             }.isSuccess
 
     companion object {
-        // SSE 이벤트 name. 클라이언트는 이 이름으로 알림 이벤트와 connect/하트비트를 구분한다.
+        // SSE 이벤트 name. 클라이언트는 이 이름으로 알림 이벤트와 connect/heartbeat 를 구분한다.
         const val EVENT_NOTIFICATION = "notification"
+
+        // 서버 -> 클라이언트 ping 의 이벤트 name. data 는 연결 번호다. 클라이언트는 이 이벤트가 일정 시간 안 오면 재연결한다.
+        const val EVENT_HEARTBEAT = "heartbeat"
 
         // 조용한(silent) 화면 갱신 신호의 SSE 이벤트 name. notification(보이는 알림)과 구분되며, 알림이 아니라
         // 라이브 동기화라 알림센터·FCM 표시 푸시를 거치지 않는다(SilentSyncPayload). "silent" 는 토스트가 뜨는
