@@ -431,21 +431,26 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         }
     }
 
+    // 세 연결: 하트비트를 보내다 끊긴 것(결측), 최근에 보낸 것(생존), 한 번도 안 보낸 것(구 버전 클라 - 판정 대상 아님).
     @Test
-    fun `클라이언트 하트비트가 임계값 넘게 끊긴 연결만 서버가 닫고 레지스트리에서 뺀다`() {
+    fun `하트비트를 보내다 임계값 넘게 끊긴 연결만 서버가 닫고 한 번도 안 보낸 연결은 건드리지 않는다`() {
         val userId = UUID.randomUUID()
         val now = Instant.parse("2026-09-08T00:00:00Z")
         val stale = RecordingSseEmitter()
         val alive = RecordingSseEmitter()
-        registry.register(userId, stale, now)
+        val legacy = RecordingSseEmitter()
+        val staleConnection = registry.register(userId, stale, now)
         val aliveConnection = registry.register(userId, alive, now)
+        registry.register(userId, legacy, now)
+        registry.touch(staleConnection.id, userId, now)
         registry.touch(aliveConnection.id, userId, now.plusSeconds(50))
         try {
             localDelivery.evictStale(now.plusSeconds(61), Duration.ofSeconds(60))
 
-            assertEquals(listOf<SseEmitter>(alive), registry.emittersOf(userId))
+            assertEquals(listOf<SseEmitter>(alive, legacy), registry.emittersOf(userId))
             assertTrue(stale.completed)
             assertFalse(alive.completed)
+            assertFalse(legacy.completed)
         } finally {
             registry.emittersOf(userId).toList().forEach { registry.unregister(userId, it) }
         }

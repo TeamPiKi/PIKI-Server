@@ -34,9 +34,19 @@ class SseConnectionTest {
     }
 
     @Test
-    fun `임계값과 같은 간격까지는 결측이 아니고 넘어야 결측이다`() {
+    fun `하트비트를 한 번도 안 보낸 연결은 아무리 오래돼도 결측이 아니다`() {
         val connection = SseConnection(UUID.randomUUID(), SseEmitter(), subscribedAt)
 
+        assertFalse(connection.heartbeatSeen)
+        assertFalse(connection.isStale(subscribedAt.plusSeconds(3600), threshold))
+    }
+
+    @Test
+    fun `하트비트를 보낸 뒤로는 임계값과 같은 간격까지 결측이 아니고 넘어야 결측이다`() {
+        val connection = SseConnection(UUID.randomUUID(), SseEmitter(), subscribedAt)
+        connection.touch(subscribedAt)
+
+        assertTrue(connection.heartbeatSeen)
         assertFalse(connection.isStale(subscribedAt.plus(threshold), threshold))
         assertTrue(connection.isStale(subscribedAt.plus(threshold).plusMillis(1), threshold))
     }

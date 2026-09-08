@@ -23,14 +23,19 @@ class SseEmitterRegistry {
     private val connectionsByUser = ConcurrentHashMap<UUID, CopyOnWriteArrayList<SseConnection>>()
     private val connectionsById = ConcurrentHashMap<UUID, SseConnection>()
 
+    // 등록은 compute 한 번 안에서 끝낸다. computeIfAbsent 로 리스트를 꺼낸 뒤 밖에서 add 하면, 그 사이 unregister 의
+    // compute 가 빈 리스트를 키째 지워 새 연결이 맵에서 떨어진 리스트에 붙는다. 그 연결은 알림·ping 을 못 받는데
+    // 번호 색인엔 남아 하트비트가 200 을 돌려주고, 종료 시 unregister 가 못 찾아 색인에서 영영 안 빠진다.
     fun register(
         userId: UUID,
         emitter: SseEmitter,
         now: Instant = Instant.now(),
     ): SseConnection {
         val connection = SseConnection(userId, emitter, now)
+        connectionsByUser.compute(userId) { _, list ->
+            (list ?: CopyOnWriteArrayList()).apply { add(connection) }
+        }
         connectionsById[connection.id] = connection
-        connectionsByUser.computeIfAbsent(userId) { CopyOnWriteArrayList() }.add(connection)
         return connection
     }
 

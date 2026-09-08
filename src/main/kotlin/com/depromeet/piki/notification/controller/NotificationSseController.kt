@@ -59,7 +59,9 @@ class NotificationSseController(
         }.onFailure { e ->
             log.warn("SSE 최초 connect 전송 실패 userId={}", userId, e)
             registry.unregister(userId, emitter)
-            emitter.completeWithError(e)
+            // completeWithError 가 아니라 complete 다(#1024 와 같은 이유). 헤더가 이미 나간 뒤의 에러 종료는 Tomcat 의
+            // /error ERROR 디스패치를 일으켜 인증 없는 인가 거부 + "already committed" 두 줄이 된다. 알릴 클라이언트도 없다.
+            emitter.complete()
         }
         return emitter
     }
