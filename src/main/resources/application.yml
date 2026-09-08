@@ -194,12 +194,11 @@ notification:
   retention-days: ${NOTIFICATION_RETENTION_DAYS:14}
   # 자동삭제 스케줄(cron, KST/Asia/Seoul). 기본 매일 04:00 KST. NotificationCleanupScheduler 의 @Scheduled(zone=Asia/Seoul) placeholder 가 참조한다.
   cleanup-cron: ${NOTIFICATION_CLEANUP_CRON:0 0 4 * * *}
-  # SSE 클라이언트 -> 서버 하트비트(#1057)의 결측 판정. 근거와 제약은 SseClientHeartbeatProperties·SsePingScheduler 주석.
   sse:
     client-heartbeat:
-      # 결측 연결 정리 스위치. 클라이언트가 하트비트를 붙인 걸 확인한 뒤 켠다(구 버전이 섞여 있어도 안전).
+      # 클라이언트가 하트비트를 붙인 걸 확인한 뒤 켠다.
       eviction-enabled: ${SSE_CLIENT_HEARTBEAT_EVICTION_ENABLED:false}
-      # 이 시간 넘게 하트비트가 없으면 결측. 단위 없는 숫자는 초. ping 주기(30초) 이하면 부팅에 실패한다.
+      # 단위 없는 숫자는 초. ping 주기(30초) 이하면 부팅에 실패한다.
       stale-after: ${SSE_CLIENT_HEARTBEAT_STALE_AFTER:60s}
 
 # API 레퍼런스 문서 노출 게이트 — dev 만 노출, prod 는 404 (deploy.yml 이 dev 만 SPRINGDOC_ENABLED=true).

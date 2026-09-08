@@ -53,9 +53,7 @@ class AccessLogFilter : OncePerRequestFilter() {
         }
     }
 
-    // SSE 구독은 장시간 연결이라 finally(연결 종료)가 한참 뒤에 돌아 latency 가 비정상으로 크게 찍힌다.
-    // 클라이언트 하트비트는 연결마다 30초에 한 번 오는 무내용 요청이라 로그가 연결 수에 비례해 쌓인다(#1057).
-    // actuator 는 Alloy 가 자주 scrape 하는 노이즈다. 셋 다 access log 대상에서 제외한다.
+    // SSE 구독은 장시간 연결이라 latency 가 무의미하고, 하트비트는 연결 수에 비례해 쌓이며, actuator 는 scrape 노이즈다.
     override fun shouldNotFilter(request: HttpServletRequest): Boolean {
         val uri = request.requestURI
         return uri.startsWith("/actuator") ||

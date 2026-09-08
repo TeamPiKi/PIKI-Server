@@ -329,8 +329,6 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         assertTrue(node.has("isRead"))
     }
 
-    // #1057 양방향 하트비트. 구독 응답의 connect 이벤트에서 연결 번호를 읽어 하트비트 POST 로 되돌리는
-    // 클라이언트 흐름 그대로를 밟는다 - 번호가 실제 와이어에 실리고, 그 번호로 서버가 연결을 찾는 계약을 한 번에 잠근다.
     @Test
     fun `connect 이벤트 data 로 받은 연결 번호로 하트비트를 보내면 200 이다`() {
         val userId = UUID.randomUUID()
@@ -393,7 +391,6 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // ApiExamples 의 400 detail 이 실제 응답과 같은지 실측으로 고정한다. 필수 필드 누락은 역직렬화 실패라 category 고정 문구다.
     @Test
     fun `connectionId 없이 하트비트를 보내면 400 이고 detail 은 category 고정 문구다`() {
         buildMockMvc()
@@ -431,7 +428,6 @@ class NotificationSseIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // 세 연결: 하트비트를 보내다 끊긴 것(결측), 최근에 보낸 것(생존), 한 번도 안 보낸 것(구 버전 클라 - 판정 대상 아님).
     @Test
     fun `하트비트를 보내다 임계값 넘게 끊긴 연결만 서버가 닫고 한 번도 안 보낸 연결은 건드리지 않는다`() {
         val userId = UUID.randomUUID()
@@ -479,7 +475,6 @@ private class RecordingSseEmitter : SseEmitter() {
         builder.build().forEach { sentData.add(it.data) }
     }
 
-    // 실제 요청 없이 만든 emitter 라 부모 complete() 는 handler 가 없어 상태만 바꾼다. 서버 선제 종료가 불렸는지만 기록한다.
     override fun complete() {
         completed = true
         super.complete()

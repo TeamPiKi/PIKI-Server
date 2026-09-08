@@ -11,7 +11,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-// 연결 번호·최근 시각·결측 판정은 순수 상태 전이라 단위로 망라한다.
 class SseConnectionTest {
     private val threshold = Duration.ofSeconds(60)
     private val t0 = Instant.parse("2026-09-08T00:00:00Z")
