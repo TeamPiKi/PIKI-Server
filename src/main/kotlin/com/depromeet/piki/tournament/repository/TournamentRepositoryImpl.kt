@@ -67,6 +67,16 @@ class TournamentRepositoryImpl(
     override fun findBySourceTournamentId(sourceTournamentId: Long): List<Tournament> =
         tournamentJpaRepository.findBySourceTournamentIdAndDeletedAtIsNull(sourceTournamentId)
 
+    override fun findCompletedBySourceTournamentIds(sourceTournamentIds: List<Long>): List<Tournament> =
+        if (sourceTournamentIds.isEmpty()) {
+            emptyList()
+        } else {
+            tournamentJpaRepository.findBySourceTournamentIdInAndStatusAndDeletedAtIsNull(
+                sourceTournamentIds,
+                TournamentStatus.COMPLETED,
+            )
+        }
+
     override fun findTournamentByInviteCode(code: String): Tournament? =
         tournamentJpaRepository.findFirstByActiveInviteCode(code)
 

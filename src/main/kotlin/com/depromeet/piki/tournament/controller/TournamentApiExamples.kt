@@ -57,11 +57,12 @@ class TournamentApiExamples(
                                             name = "내 토너먼트",
                                             status = TournamentStatus.PENDING,
                                             createdAt = LocalDateTime.of(2026, 5, 22, 12, 0, 0),
+                                            // DEPRECATED — 앱 전환 전까지만 함께 내린다. 카드는 아래 두 숫자를 쓴다.
                                             participantProfileImages =
-                                                listOf(
-                                                    "https://cdn.example.com/profiles/user1.jpg",
-                                                    "https://cdn.example.com/profiles/user2.jpg",
-                                                ),
+                                                listOf(defaultProfileImages.urlOf(1), defaultProfileImages.urlOf(2)),
+                                            // 카드의 "함께 담은 2 | 플레이한 0" — 아직 아무도 완주하지 않은 PENDING 카드다.
+                                            participantCount = 2,
+                                            playedCount = 0,
                                             thumbnailUrls =
                                                 listOf(
                                                     "https://cdn.example.com/items/item1.jpg",
@@ -390,6 +391,7 @@ class TournamentApiExamples(
                                                             nickname = "참여자1",
                                                             profileImage = "https://cdn.example.com/profiles/user1.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = true,
                                                             itemCount = 2,
                                                         ),
                                                     ),
@@ -445,6 +447,7 @@ class TournamentApiExamples(
                                                             nickname = "주최자",
                                                             profileImage = "https://cdn.example.com/profiles/user1.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = true,
                                                             itemCount = 2,
                                                         ),
                                                         TournamentDetailResponse.ParticipantResponse(
@@ -452,6 +455,7 @@ class TournamentApiExamples(
                                                             nickname = "참여자",
                                                             profileImage = "https://cdn.example.com/profiles/user2.jpg",
                                                             isWithdrawn = false,
+                                                            isHost = false,
                                                             itemCount = 0,
                                                         ),
                                                     ),
@@ -748,6 +752,7 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isHost = true,
                                                                 isMasked = false,
                                                             ),
                                                             GroupResultResponse.ParticipantSummaryResponse(
@@ -759,6 +764,7 @@ class TournamentApiExamples(
                                                                 nickname = "탈퇴aaaaaaaa",
                                                                 profileImage = defaultProfileImages.deleted(),
                                                                 isWithdrawn = true,
+                                                                isHost = false,
                                                                 isMasked = false,
                                                             ),
                                                         ),
@@ -780,6 +786,7 @@ class TournamentApiExamples(
                                                                 nickname = "참여자A",
                                                                 profileImage = defaultProfileImages.urlOf(3),
                                                                 isWithdrawn = false,
+                                                                isHost = true,
                                                                 isMasked = false,
                                                             ),
                                                         ),
@@ -815,6 +822,8 @@ class TournamentApiExamples(
                                                                 nickname = "나",
                                                                 profileImage = defaultProfileImages.urlOf(1),
                                                                 isWithdrawn = false,
+                                                                // 플레이 링크로 들어온 게스트라 주최자가 아니다. 주최자는 가려져 배지도 안 뜬다.
+                                                                isHost = false,
                                                                 isMasked = false,
                                                             ),
                                                             // 남은 신원이 지워진다 — 탈퇴 여부(isWithdrawn)도 알려주지 않는다.
@@ -823,6 +832,8 @@ class TournamentApiExamples(
                                                                 nickname = ParticipantSummary.MASKED_NICKNAME,
                                                                 profileImage = defaultProfileImages.masked(),
                                                                 isWithdrawn = false,
+                                                                // 가려진 참여자는 배지가 신원을 지목하므로 주최자여도 false 다.
+                                                                isHost = false,
                                                                 isMasked = true,
                                                             ),
                                                         ),
@@ -842,6 +853,8 @@ class TournamentApiExamples(
                                                                 nickname = ParticipantSummary.MASKED_NICKNAME,
                                                                 profileImage = defaultProfileImages.masked(),
                                                                 isWithdrawn = false,
+                                                                // 가려진 참여자는 배지가 신원을 지목하므로 주최자여도 false 다.
+                                                                isHost = false,
                                                                 isMasked = true,
                                                             ),
                                                         ),

@@ -41,4 +41,7 @@ interface TournamentUserRepository {
 
     // deletedAt 무관 — 삭제한 주최자의 완료 내역도 그룹 결과에 반영해야 한다.
     fun findCompletedByTournamentId(tournamentId: Long): List<TournamentUser>
+
+    // 위와 같은 기준의 배치 조회 — 목록 카드가 여러 토너먼트의 "플레이한 N" 을 한 번에 센다(#1062).
+    fun findCompletedByTournamentIds(tournamentIds: List<Long>): List<TournamentUser>
 }

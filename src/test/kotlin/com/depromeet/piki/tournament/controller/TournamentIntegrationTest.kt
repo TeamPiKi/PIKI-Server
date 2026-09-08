@@ -819,7 +819,7 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
-    fun `GET tournaments 는 내 토너먼트 목록을 200 과 함께 반환하고 참여자 프로필 이미지를 포함한다`() {
+    fun `GET tournaments 는 내 토너먼트 목록을 200 과 함께 반환하고 참여자 프로필 대신 인원수를 내린다`() {
         val mockMvc = buildMockMvc()
         saveUser(userId, userProfileImage)
         createTournament(mockMvc, "토너먼트A")
@@ -835,8 +835,107 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             .andExpect(jsonPath("$.data[0].name").isString)
             .andExpect(jsonPath("$.data[0].status").isString)
             .andExpect(jsonPath("$.data[0].createdAt").isString)
-            .andExpect(jsonPath("$.data[0].participantProfileImages").isArray)
+            // 프사 배열은 deprecated 지만 앱 전환 전까지 함께 내린다(#1062) — 지금 지우면 구버전 앱의 목록 화면이 통째로 깨진다.
+            // 이 단언이 깨지는 시점이 곧 "제거해도 되는가" 를 다시 물어야 하는 시점이다.
             .andExpect(jsonPath("$.data[0].participantProfileImages[0]").value(userProfileImage))
+            .andExpect(jsonPath("$.data[0].participantCount").value(1))
+            // 만들기만 하고 아무도 플레이하지 않았으므로 0.
+            .andExpect(jsonPath("$.data[0].playedCount").value(0))
+    }
+
+    @Test
+    fun `GET tournaments 의 플레이한 인원은 완주자만 세고 시작만 한 사람은 빼고 센다`() {
+        // 카드의 "플레이한 N" 은 영수증에 나오는 인원과 같은 기준이어야 한다(#1062) — 시작만 하고 이탈한 사람까지 세면
+        // 카드 숫자와 결과 화면이 어긋난다.
+        val mockMvc = buildMockMvc()
+        saveUser(userId, userProfileImage, "주최자")
+        saveUser(otherUserId, "https://cdn.example.com/member.jpg", "멤버")
+        val rootId = createTournament(mockMvc)
+        mockMvc.perform(
+            post("/api/v1/tournaments/$rootId/join")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"inviteCode":null}"""),
+        )
+        addItemsToTournament(mockMvc, rootId, userId, saveWishItem(name = "아이템1"), saveWishItem(name = "아이템2"))
+        mockMvc.perform(
+            post("/api/v1/tournaments/$rootId/start").header(HttpHeaders.AUTHORIZATION, authHeader(userId)),
+        )
+        val rootItems = tournamentItemJpaRepository.findAllByTournamentIdAndNotDeleted(rootId)
+        val ti1 = rootItems[0].getId()
+        val ti2 = rootItems[1].getId()
+        val finalMatch =
+            """{"currentRound":2,"firstTournamentItemId":$ti1,"secondTournamentItemId":$ti2,"selectedTournamentItemId":$ti1}"""
+        // 주최자만 결승까지 완주하고, 멤버는 본인 CLONE 을 시작만 한 채 끝내지 않는다.
+        mockMvc.perform(
+            post("/api/v1/tournaments/$rootId/matches")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(finalMatch),
+        )
+        val startResult = mockMvc
+            .perform(post("/api/v1/tournaments/$rootId/start").header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId)))
+            .andReturn()
+        val cloneId = objectMapper.readTree(startResult.response.contentAsString)["data"]["tournamentId"].asLong()
+
+        mockMvc
+            .perform(get("/api/v1/tournaments").header(HttpHeaders.AUTHORIZATION, authHeader(userId)))
+            .andExpect(status().isOk)
+            // 참여자는 둘, 완주는 주최자 하나.
+            .andExpect(jsonPath("$.data[0].participantCount").value(2))
+            .andExpect(jsonPath("$.data[0].playedCount").value(1))
+
+        // 멤버가 CLONE 을 끝내면 그제서야 2로 오른다.
+        mockMvc.perform(
+            post("/api/v1/tournaments/$cloneId/matches")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(finalMatch),
+        )
+
+        mockMvc
+            .perform(get("/api/v1/tournaments").header(HttpHeaders.AUTHORIZATION, authHeader(userId)))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data[0].participantCount").value(2))
+            .andExpect(jsonPath("$.data[0].playedCount").value(2))
+    }
+
+    @Test
+    fun `GET tournaments-id 의 참가자는 본인 주최자 입장순으로 오고 주최자만 isHost 다`() {
+        val mockMvc = buildMockMvc()
+        saveUser(userId, userProfileImage, "주최자")
+        saveUser(otherUserId, "https://cdn.example.com/member.jpg", "멤버")
+        val thirdUserId = UUID.randomUUID()
+        saveUser(thirdUserId, "https://cdn.example.com/third.jpg", "나중참여")
+        val rootId = createTournament(mockMvc)
+        listOf(otherUserId, thirdUserId).forEach { joiner ->
+            mockMvc.perform(
+                post("/api/v1/tournaments/$rootId/join")
+                    .header(HttpHeaders.AUTHORIZATION, authHeader(joiner))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"inviteCode":null}"""),
+            )
+        }
+
+        // 멤버 시점 — 본인이 맨 앞, 그다음 주최자, 나머지는 입장 순.
+        mockMvc
+            .perform(get("/api/v1/tournaments/$rootId").header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId)))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.pending.participants[0].nickname").value("멤버"))
+            .andExpect(jsonPath("$.data.pending.participants[0].isHost").value(false))
+            .andExpect(jsonPath("$.data.pending.participants[1].nickname").value("주최자"))
+            .andExpect(jsonPath("$.data.pending.participants[1].isHost").value(true))
+            .andExpect(jsonPath("$.data.pending.participants[2].nickname").value("나중참여"))
+            .andExpect(jsonPath("$.data.pending.participants[2].isHost").value(false))
+
+        // 주최자 시점 — 본인이자 주최자라 두 조건을 다 만족해 맨 앞 하나로 합쳐진다.
+        mockMvc
+            .perform(get("/api/v1/tournaments/$rootId").header(HttpHeaders.AUTHORIZATION, authHeader(userId)))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.pending.participants[0].nickname").value("주최자"))
+            .andExpect(jsonPath("$.data.pending.participants[0].isHost").value(true))
+            .andExpect(jsonPath("$.data.pending.participants[1].nickname").value("멤버"))
+            .andExpect(jsonPath("$.data.pending.participants[2].nickname").value("나중참여"))
     }
 
     @Test
@@ -859,7 +958,7 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             ).andExpect(status().isOk)
             .andExpect(jsonPath("$.data.length()").value(1))
             .andExpect(jsonPath("$.data[0].tournamentId").value(pendingId))
-            .andExpect(jsonPath("$.data[0].participantProfileImages[0]").value(userProfileImage))
+            .andExpect(jsonPath("$.data[0].participantCount").value(1))
     }
 
     @Test
@@ -4137,6 +4236,8 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             // 회원에게는 마스킹이 걸리지 않는다 — 게스트 마스킹이 회원 응답까지 덮는 회귀를 막는다.
             .andExpect(jsonPath("$.data.items[0].chosenBy[0].isMasked").value(false))
             .andExpect(jsonPath("$.data.items[0].chosenBy[0].userId").isString)
+            // 영수증에도 주최자 배지를 단다(#1062). 헬퍼에서 userId 가 ROOT 를 만들고 먼저 완주하므로 첫 선택자가 주최자다.
+            .andExpect(jsonPath("$.data.items[0].chosenBy[0].isHost").value(true))
     }
 
     @Test
@@ -4163,12 +4264,17 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
             ).andExpect(status().isOk)
             .andReturn()
 
-        val nicknames = objectMapper
+        val chosenBy = objectMapper
             .readTree(result.response.contentAsString)["data"]["items"]
             .flatMap { it["chosenBy"] }
-            .map { it["nickname"].asText() }
-            .toSet()
+        val nicknames = chosenBy.map { it["nickname"].asText() }.toSet()
 
+        // 주최자 배지는 주최자 한 명에게만 붙는다(#1062). 참여자가 둘 다 살아 있는 유일한 그룹 결과 케이스라 여기서 검증한다.
+        assertEquals(
+            listOf("주최자토너닉"),
+            chosenBy.filter { it["isHost"].asBoolean() }.map { it["nickname"].asText() },
+            "isHost 는 주최자 한 명에게만 붙어야 한다: $chosenBy",
+        )
         // 주최자는 토너먼트 닉으로 뜨고 프로필 닉은 새지 않는다. 클론 소유자(플레이링크 게스트)도 자기 토너먼트 닉으로 뜬다.
         assertTrue("주최자토너닉" in nicknames, "선택자에 토너먼트 닉이 있어야 한다: $nicknames")
         assertTrue("주최자프로필" !in nicknames, "프로필 닉이 그룹 결과에 새면 안 된다: $nicknames")
@@ -4398,6 +4504,9 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
         )
         // 탈퇴 여부를 남기면 "탈퇴한 사람" 과 "로그인하면 보이는 사람" 이 갈려 마스킹이 그만큼 샌다.
         assertTrue(masked.none { it["isWithdrawn"].asBoolean() }, "가려진 참여자의 isWithdrawn 은 false 여야 한다: $masked")
+        // 주최자 배지는 더 치명적이다 — 게스트는 자기를 초대한 사람이 주최자임을 알아, 배지 하나가 그 사람을 지목한다(#1062).
+        // 이 시나리오에서 가려진 사람이 곧 주최자라 배지가 새면 바로 드러난다.
+        assertTrue(masked.none { it["isHost"].asBoolean() }, "가려진 참여자의 isHost 는 false 여야 한다: $masked")
     }
 
     @Test

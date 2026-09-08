@@ -27,6 +27,8 @@ data class GroupResultResponse(
         val profileImage: String,
         // 탈퇴 유저면 true. 닉네임·프로필이 익명값이라 FE 가 이 플래그로 "유저 알수없음" 을 렌더한다.
         val isWithdrawn: Boolean,
+        // 주최자면 true. 프로필 우측 하단에 HostBadge 를 그린다. 가려진 참여자는 배지가 신원을 지목하므로 항상 false 다.
+        val isHost: Boolean,
         // 게스트에게 신원이 가려진 참여자면 true. userId=null, 닉네임·프로필은 물음표 값이다.
         val isMasked: Boolean,
     )
@@ -48,6 +50,7 @@ data class GroupResultResponse(
                                 nickname = p.nickname,
                                 profileImage = p.profileImage,
                                 isWithdrawn = p.isWithdrawn,
+                                isHost = p.isHost,
                                 isMasked = p.isMasked,
                             )
                         },
