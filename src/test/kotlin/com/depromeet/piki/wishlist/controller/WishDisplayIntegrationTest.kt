@@ -214,8 +214,7 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
                     status = status,
                     extractedAt = LocalDateTime.now(),
                     source = source,
-                    editedBy = by.takeIf { source == ItemSnapshotSource.MANUAL },
-                    createdBy = by,
+                        createdBy = by,
                 ),
             ).getId()
 
