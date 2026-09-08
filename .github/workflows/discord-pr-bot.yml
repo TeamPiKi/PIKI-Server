@@ -1,12 +1,12 @@
 # 허거덩(Discord PR Bot) — 본문은 TeamPiKi/infra 의 reusable 정본에 있고, 이 caller 는 트리거·concurrency·
 # 권한·secrets 전달만 소유한다. 변화 축이 곧 트리거다: 어떤 pull_request 이벤트를 구독하나(우리는 draft 흐름의
-# ready_for_review 와 재오픈 복구의 reopened 둘 다), push 경보를 켜나(켠다). @main 참조는 배포 blocks 와 같은
-# SSOT 선택 — 정본 머지 즉시 이 repo 에 반영된다.
+# ready_for_review 와 재오픈 복구의 reopened 둘 다). @main 참조는 배포 blocks 와 같은 SSOT 선택 — 정본 머지
+# 즉시 이 repo 에 반영된다.
+# main 직접 푸시 경보는 discord-direct-push.yml, 스레드 백필은 discord-backfill.yml 이 따로 부른다 — 한 caller 에
+# 묶으면 PR 체크 목록에 그 축의 job 이 매번 skipped 로 남기 때문이다.
 name: Discord PR Bot
 
 on:
-  # 기존 PR 스레드를 현재 정책으로 일괄 통일(팀원 추가·닫힘 상태)하는 수동 백필용. Actions → Run workflow.
-  workflow_dispatch:
   pull_request:
     types:
       - opened
@@ -17,22 +17,18 @@ on:
       - edited
       - synchronize
       - closed
-  # main 직접 푸시 경보 (PR 머지가 아닌 push 만 @here)
-  push:
-    branches:
-      - main
 
 # 최소권한: 상단은 비우고 job 단위로만 준다 (zizmor excessive-permissions).
 permissions: {}
 
 # 레이스 방지용 concurrency — 호출 run 의 속성이라 정본이 아닌 caller 소유.
 concurrency:
-  group: discord-pr-bot-${{ github.event.pull_request.number || github.sha }}
+  group: discord-pr-bot-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   bot:
-    # 정본 job 들이 요구하는 권한의 합집합을 전달한다 — 각 job 은 정본에서 다시 최소로 좁힌다.
+    # 정본 job 이 요구하는 권한을 전달한다 — 정본에서 다시 최소로 좁힌다.
     permissions:
       pull-requests: write
       issues: read

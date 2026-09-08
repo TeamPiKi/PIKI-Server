@@ -16,6 +16,8 @@ import com.depromeet.piki.support.StubImageParsingWorker
 import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubItemParsingWorker
 import com.depromeet.piki.support.StubRefreshTokenStore
+import com.depromeet.piki.support.presignImages
+import com.depromeet.piki.tournament.controller.dto.UpdateTournamentNicknameRequest
 import com.depromeet.piki.tournament.domain.Tournament
 import com.depromeet.piki.tournament.domain.TournamentItem
 import com.depromeet.piki.tournament.domain.TournamentUser
@@ -28,7 +30,6 @@ import com.depromeet.piki.tournament.event.TournamentStarted
 import com.depromeet.piki.tournament.repository.TournamentItemJpaRepository
 import com.depromeet.piki.tournament.repository.TournamentJpaRepository
 import com.depromeet.piki.tournament.repository.TournamentUserJpaRepository
-import com.depromeet.piki.tournament.controller.dto.UpdateTournamentNicknameRequest
 import com.depromeet.piki.tournament.service.PLAY_LINK_DURATION_DAYS
 import com.depromeet.piki.tournament.service.TournamentErrorCode
 import com.depromeet.piki.user.domain.IdentityType
@@ -39,6 +40,7 @@ import com.depromeet.piki.wishlist.domain.Wish
 import com.depromeet.piki.wishlist.repository.WishJpaRepository
 import com.depromeet.piki.wishlist.repository.WishRepository
 import com.depromeet.piki.wishlist.service.WishPersistenceService
+import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpHeaders
@@ -54,7 +56,6 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
-import org.hamcrest.Matchers.nullValue
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -428,8 +429,8 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
         val tournamentId = createTournament(mockMvc)
         // 위시에는 등록되어 있지만 item 테이블에는 없는 ID — wish 확인 통과 후 item 존재 확인에서 404.
         // itemId 단일 출처는 snapshot 이므로, item 행 없이 itemId=999999 를 가리키는 snapshot 만 시딩해 wish 가 가리키게 한다(FK 없음).
-        val danglingSnapshotId = itemSnapshotJpaRepository.save(ItemSnapshot.pending(999999L).apply { markProcessing() }).getId()
-        wishJpaRepository.save(Wish(userId = userId, snapshotId = danglingSnapshotId))
+        val danglingSnapshotId = itemSnapshotJpaRepository.save(ItemSnapshot.pending(999999L, requestedBy = userId).apply { markProcessing() }).getId()
+        wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = danglingSnapshotId, itemId = 999999L))
 
         mockMvc
             .perform(
@@ -447,9 +448,9 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
         val processingItemId = itemJpaRepository.save(Item()).getId()
         // 활성 snapshot 이 PROCESSING — 표시값·상태는 snapshot 소관이라 PROCESSING snapshot 을 만들어 wish 가 가리키게 한다.
         val processingSnapshotId =
-            itemSnapshotJpaRepository.save(ItemSnapshot.pending(processingItemId).apply { markProcessing() }).getId()
+            itemSnapshotJpaRepository.save(ItemSnapshot.pending(processingItemId, requestedBy = userId).apply { markProcessing() }).getId()
         // 위시에도 등록 — wish 확인 통과 후 READY 상태 확인에서 409
-        wishJpaRepository.save(Wish(userId = userId, snapshotId = processingSnapshotId))
+        wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = processingSnapshotId, itemId = processingItemId))
 
         mockMvc
             .perform(
@@ -2870,7 +2871,7 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
                 post("/api/v1/tournaments/$cloneId/items/images/presigned")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.AUTHORIZATION, authHeader(otherUserId))
-                    .content(objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/jpeg")))),
+                    .content(objectMapper.writeValueAsString(presignImages(listOf("image/jpeg")))),
             ).andExpect(status().isForbidden)
     }
 
@@ -2932,7 +2933,7 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
                     post("/api/v1/tournaments/$tournamentId/items/images/presigned")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, authHeader(actor))
-                        .content(objectMapper.writeValueAsString(mapOf("contentTypes" to List(count) { "image/jpeg" }))),
+                        .content(objectMapper.writeValueAsString(presignImages(List(count) { "image/jpeg" }))),
                 ).andExpect(status().isOk)
                 .andReturn()
                 .response
@@ -3121,8 +3122,8 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
     // 적재 후 claim(PROCESSING)→markExtracted 로 전이시켜 추출값을 채운다. 표시값·상태는 활성 snapshot 이 보유한다.
     private fun saveWishItem(owner: UUID = userId, name: String = "테스트 아이템", price: Int = 10_000): Long {
         val item = itemJpaRepository.save(Item(sourceImageKey = "items/raw/${UUID.randomUUID()}.png"))
-        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(item.getId()))
-        wishJpaRepository.save(Wish(userId = owner, snapshotId = snapshot.getId()))
+        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = owner))
+        wishJpaRepository.save(Wish(userId = owner, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
         snapshot.markProcessing()
         // 이 시딩은 워커를 태우지 않고 전이만 재현한다 — 실행이 없었으므로 attempt 는 집기 직후 값(0) 그대로이고,
         // 전이의 fencing 토큰도 그 값이다. (실행까지 재현하는 흐름은 WishlistRegisterAsyncIntegrationTest 가 덮는다.)
@@ -3142,7 +3143,7 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
         name: String = "남이 채운 이름",
         price: Int = 89_000,
     ) {
-        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(itemId))
+        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID()))
         snapshot.markProcessing()
         itemParsingService.markExtracted(
             snapshot.getId(),
@@ -3163,8 +3164,8 @@ class TournamentIntegrationTest : IntegrationTestSupport() {
     // 적재는 saveWishItem 과 같은 이유로 행을 직접 심는다(등록 경로는 presigned 통합 테스트가 덮는다).
     private fun saveIncompleteWishItem(owner: UUID = userId, name: String = "가격 없는 아이템"): Long {
         val item = itemJpaRepository.save(Item(sourceImageKey = "items/raw/${UUID.randomUUID()}.png"))
-        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(item.getId()))
-        wishJpaRepository.save(Wish(userId = owner, snapshotId = snapshot.getId()))
+        val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = owner))
+        wishJpaRepository.save(Wish(userId = owner, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
         snapshot.markProcessing()
         itemParsingService.markExtracted(
             snapshot.getId(),

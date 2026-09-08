@@ -67,6 +67,9 @@ interface ItemSnapshotJpaRepository : JpaRepository<ItemSnapshot, Long> {
     // 살아있는 행만 id 목록으로 일괄 조회.
     fun findByIdInAndDeletedAtIsNull(ids: Collection<Long>): List<ItemSnapshot>
 
+    // 카드 표시값 파생(#1051) — 여러 item 의 살아있는 버전 전체, id 오름차순. idx_item_snapshots_item_id 로 커버된다.
+    fun findByItemIdInAndDeletedAtIsNullOrderByIdAsc(itemIds: Collection<Long>): List<ItemSnapshot>
+
     // 공유 등록(#825 활성화)의 합류 판정 — 이 item 에 진행 중(PENDING/PROCESSING) 버전이 있으면 새 작업을 만들지
     // 않고 그 진행에 붙는다. 최신 우선(id desc)으로 하나만.
     @Query(
@@ -84,20 +87,6 @@ interface ItemSnapshotJpaRepository : JpaRepository<ItemSnapshot, Long> {
     fun findLatestMachineReadyByItemId(
         @Param("itemId") itemId: Long,
     ): ItemSnapshot?
-
-    // 카드 표시값 파생(#857)의 배치 조회 — item 별 마지막 기계(SERVER/SERVER_LLM) READY 하나씩.
-    // 서브쿼리로 item 별 max(id)만 골라, 이력이 긴 item 이 섞여도 행 수가 item 수를 넘지 않는다.
-    // 출처 null(도입 전 행)은 기계 여부를 모르므로 제외한다 — 그 item 은 호출부가 포인터 버전으로 fallback 한다.
-    @Query(
-        "select s from ItemSnapshot s where s.id in (" +
-            "select max(s2.id) from ItemSnapshot s2 where s2.itemId in :itemIds " +
-            "and s2.status = com.depromeet.piki.item.domain.ItemStatus.READY " +
-            "and s2.source in (com.depromeet.piki.item.domain.ItemSnapshotSource.SERVER, com.depromeet.piki.item.domain.ItemSnapshotSource.SERVER_LLM) " +
-            "and s2.deletedAt is null group by s2.itemId)",
-    )
-    fun findLatestMachineReadyByItemIds(
-        @Param("itemIds") itemIds: Collection<Long>,
-    ): List<ItemSnapshot>
 
     // 병합(#825) — 진(임시) item 의 모든 버전을 이긴 item 소속으로 재부모화한다. wish·tournament_item 은 snapshot 만
     // 참조하므로 이 한 문장으로 참조가 자동 추종된다. native bulk 라 auditing 을 우회해 updated_at 을 직접 갱신한다.

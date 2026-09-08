@@ -1,0 +1,18 @@
+# 허거덩(Discord PR Bot)의 main 직접 푸시 경보 caller — 본문은 TeamPiKi/infra 의 reusable 정본에 있다.
+# PR 머지가 아닌 push 만 @here 로 알린다. PR 알림 caller(discord-pr-bot.yml)와 파일을 나눈 이유는 그쪽 주석 참고.
+name: Discord Direct Push Alert
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  alert:
+    # 이 커밋의 PR 조회만 함 = pull-requests read.
+    permissions:
+      pull-requests: read
+    uses: TeamPiKi/infra/.github/workflows/discord-direct-push.yml@main
+    secrets: inherit

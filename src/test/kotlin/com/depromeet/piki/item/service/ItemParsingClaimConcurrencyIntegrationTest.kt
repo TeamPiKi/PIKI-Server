@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import kotlin.test.assertTrue
+import java.util.UUID
 
 // 작업 큐 claim(FOR UPDATE)과 "PENDING snapshot 을 insert 중인 트랜잭션"의 공존을 검증한다.
 //
@@ -51,7 +52,7 @@ class ItemParsingClaimConcurrencyIntegrationTest : IntegrationTestSupport() {
             TransactionTemplate(transactionManager).execute {
                 val item = itemJpaRepository.save(Item(sourceImageKey = "items/raw/claim-skip-locked-test.jpg"))
                 insertedItemId.set(item.getId())
-                itemSnapshotJpaRepository.saveAndFlush(ItemSnapshot.pending(item.getId()))
+                itemSnapshotJpaRepository.saveAndFlush(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()))
                 inserted.countDown()
                 // 단언이 끝날 때까지 락 보유. 최대 8초 — claim 이 여기 대기하면 아래 2초 단언이 확실히 깨진다.
                 release.await(8, TimeUnit.SECONDS)

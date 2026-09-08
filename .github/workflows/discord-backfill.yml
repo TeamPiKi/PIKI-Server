@@ -1,0 +1,16 @@
+# 허거덩(Discord PR Bot)의 스레드 백필 caller — 본문은 TeamPiKi/infra 의 reusable 정본에 있다.
+# 기존 PR 스레드를 현재 정책으로 일괄 통일(팀원 추가·닫힘 상태)하는 수동 백필용. Actions → Run workflow.
+name: Discord Thread Backfill
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  backfill:
+    permissions:
+      pull-requests: read
+      issues: read
+    uses: TeamPiKi/infra/.github/workflows/discord-backfill.yml@main
+    secrets: inherit

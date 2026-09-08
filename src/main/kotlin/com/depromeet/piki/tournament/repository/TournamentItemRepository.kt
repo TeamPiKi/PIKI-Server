@@ -1,6 +1,5 @@
 package com.depromeet.piki.tournament.repository
 
-import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.tournament.domain.TournamentItem
 import java.util.UUID
 
@@ -24,11 +23,8 @@ interface TournamentItemRepository {
 
     fun findRoutingsWithUserBySnapshotId(snapshotId: Long): List<TournamentItemUserRoutingView>
 
-    // 이 아이템의 지정 상태 버전을 pin 한 출전의 (등록자, 토너먼트 좌표) — 해소 통지 수신자 역조회(#1028).
-    fun findRoutingsWithUserByItemIdAndStatuses(
-        itemId: Long,
-        statuses: Collection<ItemStatus>,
-    ): List<TournamentItemUserRoutingView>
+    // 이 상품을 대기실(PENDING) 토너먼트에 출전시킨 카드 — 해소 통지 수신자 후보(#1028·#1051).
+    fun findPendingCardsByItemId(itemId: Long): List<TournamentItemCardView>
 
     fun findAllByTournamentId(tournamentId: Long): List<TournamentItem>
 
