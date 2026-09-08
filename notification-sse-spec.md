@@ -185,7 +185,7 @@ es.addEventListener("notification", (e) => {
     case "ITEM_PARSING_FAILED":
     case "ITEM_PARSING_INCOMPLETE":
       if (n.kind === "TOURNAMENT") goToTournamentItem(n.tournamentId, n.tournamentItemId);
-      else goToArchiveWish();
+      else goToWishDetail(n.wishId); // null 이면 /archive/wish
       break;
     case "ITEM_REFRESH_COMPLETED":
     case "ITEM_REFRESH_FAILED":
@@ -231,15 +231,15 @@ fun openSse() {
 }
 ```
 
-## 9. 체크리스트
+## 9. 요약
 
-- [ ] `type` 으로 분기한다. 문구로 분기하지 않는다
-- [ ] `refId` 의 의미는 `type` 마다 다르다 (tournamentId / itemId)
-- [ ] 좌표 유무는 `type` 이 가른다. `kind` 만 보고 좌표를 읽지 않는다
-- [ ] 파싱 알림 안에서만 `kind` 로 출처를 가른다
-- [ ] `silent-sync` 는 토스트·알림센터 없이 화면만 갱신한다
-- [ ] `connect`·`heartbeat` 의 연결 번호를 보관하고 재연결 시 갱신한다
-- [ ] `heartbeat` 60초 결측이면 재연결한다
-- [ ] 연결 중·포그라운드일 때 30초마다 `POST /heartbeat`, `409` 면 즉시 재연결한다
-- [ ] 재연결 시 목록 API 로 놓친 알림을 동기화한다
-- [ ] 재연결 전에 토큰이 만료됐으면 refresh 한다
+- `type` 으로 분기한다. 문구로 분기하지 않는다
+- `refId` 의 의미는 `type` 마다 다르다 (tournamentId / itemId)
+- 좌표 유무는 `type` 이 가른다. `kind` 만 보고 좌표를 읽지 않는다
+- 파싱 알림 안에서만 `kind` 로 출처를 가른다
+- `silent-sync` 는 토스트·알림센터 없이 화면만 갱신한다
+- `connect`·`heartbeat` 의 연결 번호를 보관하고 재연결 시 갱신한다
+- `heartbeat` 60초 결측이면 재연결한다
+- 연결 중·포그라운드일 때 30초마다 `POST /heartbeat`, `409` 면 즉시 재연결한다
+- 재연결 시 목록 API 로 놓친 알림을 동기화한다
+- 재연결 전에 토큰이 만료됐으면 refresh 한다
