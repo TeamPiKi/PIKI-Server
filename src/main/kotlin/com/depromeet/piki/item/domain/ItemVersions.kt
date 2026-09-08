@@ -20,6 +20,9 @@ import java.util.UUID
 class ItemVersions private constructor(
     private val versions: List<ItemSnapshot>,
 ) {
+    // 이 묶음의 상품. of() 가 한 상품의 버전만 받으므로 첫 행에서 읽는다.
+    val itemId: Long get() = versions.first().itemId
+
     fun displayFor(
         viewer: UUID,
         waitingOn: Long,
@@ -35,10 +38,31 @@ class ItemVersions private constructor(
             ?: versions.last()
     }
 
+    // 해소 통지(#1028) 판정 — 이 카드가 snapshotId 버전으로 "채워지는가". 그 버전을 뺀 버전들로 계산한 표시값이 미완성이었고,
+    // 넣으면 표시값이 그 버전이 되는 카드다. 카드 표시값과 같은 규칙(displayFor)을 쓰므로 알림과 화면이 어긋날 수 없다.
+    // 그 버전을 기다리는 카드는 완료·새로고침 완료 알림을 받으므로 여기서 false 다(두 알림은 배타적).
+    fun recovers(
+        viewer: UUID,
+        waitingOn: Long,
+        snapshotId: Long,
+    ): Boolean {
+        require(versions.any { it.getId() == snapshotId }) { "이 상품에 버전 $snapshotId 이 없다" }
+        // 그 버전 이후에 기다리기 시작한 카드는 그 버전에 멈춰 있던 적이 없다. 판정은 "그 버전이 생기던 순간" 의 상태로 한다 —
+        // 더 새 버전까지 넣고 빼는 집합 비교는 성공 버전이 둘 이상 쌓이면(비동기 디스패치·연속 새로고침) 앞 버전을 뒤 버전이
+        // 가려 아무 알림도 안 나가게 만든다. 그래서 before/after 는 그 버전까지의 접두 상태다.
+        if (waitingOn >= snapshotId) return false
+        val before = versions.filter { it.getId() < snapshotId }
+        if (before.isEmpty()) return false
+        if (!ItemVersions(before).displayFor(viewer, waitingOn).isUnresolved()) return false
+        val after = versions.filter { it.getId() <= snapshotId }
+        return ItemVersions(after).displayFor(viewer, waitingOn).getId() == snapshotId
+    }
+
     companion object {
         // 버전은 id 오름차순으로 정렬해 둔다 — "최신" 판정은 전부 id 다(단조증가 PK, 별도 version 컬럼 없음).
         fun of(versions: Collection<ItemSnapshot>): ItemVersions {
             require(versions.isNotEmpty()) { "버전이 하나도 없는 상품은 카드가 될 수 없다" }
+            require(versions.map { it.itemId }.distinct().size == 1) { "한 상품의 버전만 묶을 수 있다" }
             return ItemVersions(versions.sortedBy { it.getId() })
         }
     }

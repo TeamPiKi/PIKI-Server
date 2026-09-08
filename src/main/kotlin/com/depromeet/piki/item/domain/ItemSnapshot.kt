@@ -211,6 +211,10 @@ class ItemSnapshot(
     // 카드에 보일 값을 가진 버전인지 — READY(완성)와 INCOMPLETE(일부). FAILED·진행 중은 값이 없다.
     fun hasValue(): Boolean = isReady() || isIncomplete()
 
+    // 아직 사람 손이 필요한 종결 상태인지 — FAILED(값 없음)·INCOMPLETE(일부만). 해소 통지(#1028)가 "멈춰 있던 카드" 를
+    // 가르는 어휘다. 진행 중은 종결이 아니라 여기 들지 않는다.
+    fun isUnresolved(): Boolean = isFailed() || isIncomplete()
+
     fun isManual(): Boolean = source == ItemSnapshotSource.MANUAL
 
     // 이 버전이 user 의 맥락에서 만들어졌는지(그 사람이 시켰거나 고쳤는지). 표시값 판정(ItemVersions)의 근거.
@@ -297,7 +301,7 @@ class ItemSnapshot(
             price: Int?,
             imageUrl: String?,
             currency: String?,
-            editedBy: UUID,
+            createdBy: UUID,
         ): ItemSnapshot {
             val mergedName = name ?: base.name
             val mergedPrice = price ?: base.price
@@ -315,8 +319,9 @@ class ItemSnapshot(
                 status = ItemStatus.READY,
                 extractedAt = LocalDateTime.now(),
                 source = ItemSnapshotSource.MANUAL,
-                editedBy = editedBy,
-                createdBy = editedBy,
+                // edited_by 는 created_by 에 흡수됐고 컬럼 제거(3단계)까지 같은 값을 함께 적는다 — 쓰는 곳은 여기 하나다.
+                editedBy = createdBy,
+                createdBy = createdBy,
             )
         }
     }

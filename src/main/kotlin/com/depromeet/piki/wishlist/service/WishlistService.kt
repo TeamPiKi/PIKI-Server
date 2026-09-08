@@ -12,7 +12,6 @@ import com.depromeet.piki.item.domain.ItemErrorCode
 import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
-import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.item.service.ItemRegistrar
 import com.depromeet.piki.product.domain.ProductLink
@@ -99,25 +98,15 @@ class WishlistService(
         val hasNext = fetched.size > size
         val pageWishes = fetched.take(size)
 
-        // 포인터 버전을 끌어온 뒤 표시값은 파생한다(#857·#1051) — 규칙은 ItemVersions 가 진다(내 맥락의 값 vs 공유 기계 READY).
-        // 포인터는 정체성 도달(itemId)·결과 키에만 쓰이고, 카드 주인은 위시 주인이다.
-        val snapshotsById =
-            itemSnapshotRepository
-                .findByIds(pageWishes.map { it.snapshotId })
-                .associateBy { it.getId() }
-        val displayById = itemDisplayService.resolveDisplay(snapshotsById.values.map { DisplayCard(it, owner = userId) })
-        // item 정체성은 snapshot.itemId 단일 출처다. snapshot 에서 itemId 를 모아 item 을 한 번에 끌어온다.
-        val itemsById = itemRepository
-            .findByIds(snapshotsById.values.map { it.itemId })
-            .associateBy { it.getId() }
+        // 표시값은 파생한다(#857·#1051) — 규칙은 ItemVersions 가 진다(내 맥락의 값 vs 공유 READY, 기다리는 행의 진행 중).
+        // 위시는 상품(itemId)을 직접 참조하므로 상품과 표시값을 그 키로 끌어온다.
+        val displayByCard = itemDisplayService.resolveDisplay(pageWishes.map { it.displayCard() })
+        val itemsById = itemRepository.findByIds(pageWishes.map { it.itemId }).associateBy { it.getId() }
         val entries =
             pageWishes.map { wish ->
-                // snapshot·item 은 wish 와 함께 영속화되며 별도 삭제 경로가 없다. 없으면 영속화 경로가 깨진 코드 버그다.
-                val pointer =
-                    snapshotsById[wish.snapshotId]
-                        ?: error("wish ${wish.getId()} 의 snapshot ${wish.snapshotId} 가 없다")
-                val item = itemsById[pointer.itemId] ?: error("wish ${wish.getId()} 의 item ${pointer.itemId} 가 없다")
-                WishWithItem(wish = wish, item = item, snapshot = displayById[pointer.getId()] ?: pointer)
+                // item 은 wish 와 함께 영속화되며 병합 시 함께 옮겨진다(WishItemMergeListener). 없으면 영속화 경로가 깨진 코드 버그다.
+                val item = itemsById[wish.itemId] ?: error("wish ${wish.getId()} 의 item ${wish.itemId} 가 없다")
+                WishWithItem(wish = wish, item = item, snapshot = displayByCard.getValue(wish.displayCard()))
             }
 
         val nextCursor =
@@ -143,19 +132,14 @@ class WishlistService(
         requireMember(userId)
         val wish = wishRepository.findById(wishId) ?: throw WishException.notFound()
         wish.verifyOwnedBy(userId)
-        // wish 가 가리키는 snapshot·item 은 반드시 존재한다. 없으면 영속화 경로가 깨진 코드 버그다.
-        // item 정체성은 snapshot.itemId 단일 출처다 — snapshot 을 먼저 끌어오고 그 itemId 로 item 을 조회한다.
-        val pointer =
-            itemSnapshotRepository.findById(wish.snapshotId)
-                ?: error("wish ${wish.getId()} 의 snapshot ${wish.snapshotId} 가 없다")
-        val item =
-            itemRepository.findById(pointer.itemId) ?: error("wish ${wish.getId()} 의 item ${pointer.itemId} 가 없다")
-        // 표시값 파생(#857) — 목록(getWishlist)과 같은 규칙.
-        val history = itemSnapshotRepository.findPriceHistoryByItemId(pointer.itemId, PRICE_HISTORY_LIMIT)
+        // wish 가 참조하는 item 은 반드시 존재한다(병합 시 함께 옮겨진다). 없으면 영속화 경로가 깨진 코드 버그다.
+        val item = itemRepository.findById(wish.itemId) ?: error("wish ${wish.getId()} 의 item ${wish.itemId} 가 없다")
+        // 표시값 파생(#857·#1051) — 목록(getWishlist)과 같은 규칙.
+        val history = itemSnapshotRepository.findPriceHistoryByItemId(wish.itemId, PRICE_HISTORY_LIMIT)
         return WishDetail(
             wish = wish,
             item = item,
-            snapshot = itemDisplayService.resolveDisplay(pointer, owner = userId),
+            snapshot = itemDisplayService.resolveDisplay(wish.displayCard()),
             history = history,
         )
     }
@@ -178,9 +162,8 @@ class WishlistService(
         // item 필드가 함께 오면 아래 수기 수정 경로가 같은 트랜잭션(manualEdit)에서 memo 도 반영한다.
         if (listOfNotNull(name, price, currency, image).isEmpty()) {
             memo?.let {
-                val result = wishPersistenceService.updateMemo(userId = userId, wishId = wishId, memo = it)
-                // 표시값 파생(#857) — 조회와 같은 규칙으로 응답의 item 을 맞춘다.
-                return result.copy(snapshot = itemDisplayService.resolveDisplay(result.snapshot, owner = userId))
+                // 응답의 item 은 updateMemo 가 행 락 안에서 표시값(#857)으로 맞춰 돌려준다.
+                return wishPersistenceService.updateMemo(userId = userId, wishId = wishId, memo = it)
             }
         }
         // 이미지 형식 검증(빈 바이트·미지원 MIME) — 외부 호출 전에 동기로 거른다(400).

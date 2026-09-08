@@ -115,7 +115,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
             assertEquals("옛 상품", preserved.name)
 
             // wish 활성 포인터가 새 버전으로 스왑됐다.
-            assertEquals(active.getId(), wishRepository.findById(wishId)?.snapshotId)
+            assertEquals(active.getId(), wishRepository.findById(wishId)?.waitingSnapshotId)
         } finally {
             cleanup(userId)
         }
@@ -130,7 +130,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
             // PROCESSING 위시 시딩 — 디스패처는 PENDING 만 집고 recover 는 stale(60초)만 보므로 방금 만든 행은 PROCESSING 고정.
             val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/inprogress")))
             val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId).apply { markProcessing() })
-            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
+            val wish = wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
             val itemId = item.getId()
             val before = countSnapshots(itemId)
 
@@ -143,7 +143,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
 
             // 멱등 — 새 snapshot 행이 생기지 않고 활성 포인터도 그대로다.
             assertEquals(before, countSnapshots(itemId))
-            assertEquals(snapshot.getId(), wishRepository.findById(wish.getId())?.snapshotId)
+            assertEquals(snapshot.getId(), wishRepository.findById(wish.getId())?.waitingSnapshotId)
         } finally {
             cleanup(userId)
         }
@@ -168,7 +168,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                         extractedAt = LocalDateTime.now(),
                     ),
                 )
-            val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
+            val wish = wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
 
             mockMvc
                 .perform(
@@ -282,8 +282,8 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                 ).andExpect(status().isOk)
 
             val swapped = wishRepository.findById(wish.getId())!!
-            assertNotEquals(failed.getId(), swapped.snapshotId, "활성 포인터가 새 버전으로 스왑돼야 한다")
-            assertEquals(ItemStatus.PENDING, itemSnapshotRepository.findById(swapped.snapshotId)?.status)
+            assertNotEquals(failed.getId(), swapped.waitingSnapshotId, "활성 포인터가 새 버전으로 스왑돼야 한다")
+            assertEquals(ItemStatus.PENDING, itemSnapshotRepository.findById(swapped.waitingSnapshotId)?.status)
         } finally {
             cleanup(userId)
         }
@@ -315,7 +315,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
             await().atMost(Duration.ofSeconds(5)).until { latestSnapshot(itemId)?.status == ItemStatus.READY }
 
             // wish 활성은 새 버전으로 스왑됐지만,
-            assertNotEquals(oldSnapshotId, wishRepository.findById(wishId)?.snapshotId)
+            assertNotEquals(oldSnapshotId, wishRepository.findById(wishId)?.waitingSnapshotId)
             // tournament_item 은 출전 시점 snapshot 에 고정돼 그대로다.
             val fixedSnapshotId =
                 jdbcTemplate.queryForObject(
@@ -433,7 +433,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
 
             // 새 MANUAL 버전이 활성으로 스왑됐다 — 편집자·출처가 박힌다.
             val active =
-                itemSnapshotRepository.findById(wishRepository.findById(wish.getId())!!.snapshotId)
+                itemSnapshotRepository.findById(wishRepository.findById(wish.getId())!!.waitingSnapshotId)
                     ?: error("활성 snapshot 이 없다")
             assertEquals(result.snapshot.getId(), active.getId())
             assertEquals(ItemStatus.READY, active.status)
@@ -459,7 +459,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
     ): Triple<Wish, Item, ItemSnapshot> {
         val item = itemRepository.save(Item(ProductLink.parse(url)))
         val failed = itemSnapshotRepository.save(ItemSnapshot(itemId = item.getId(), status = ItemStatus.FAILED))
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = failed.getId(), itemId = failed.itemId))
+        val wish = wishRepository.save(Wish(userId = userId, waitingSnapshotId = failed.getId(), itemId = failed.itemId))
         return Triple(wish, item, failed)
     }
 
@@ -481,7 +481,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                     extractedAt = LocalDateTime.now(),
                 ),
             )
-        val wish = wishRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
+        val wish = wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
         return Triple(wish.getId(), item.getId(), snapshot.getId())
     }
 

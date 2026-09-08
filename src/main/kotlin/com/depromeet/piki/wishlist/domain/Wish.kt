@@ -7,30 +7,28 @@ import jakarta.persistence.Table
 import java.time.LocalDateTime
 import java.util.UUID
 
+// 사용자가 상품(item)을 위시리스트에 담은 기록. 상품은 정체성(itemId)으로 참조하고, 화면값은 그 상품의 버전들에서
+// 계산한다(ItemVersions, #1051) — 위시는 "어느 상품인가" 와 "지금 어느 파싱을 기다리는가" 만 안다.
 @Entity
 @Table(name = "wishes")
 class Wish(
     @Column(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
     val userId: UUID,
-    snapshotId: Long,
-    itemId: Long,
+    waitingSnapshotId: Long,
+    @Column(name = "item_id", nullable = false)
+    val itemId: Long,
 ) : LongBaseEntity() {
-    // 상품 정체성 참조(#1051). 화면값은 이 상품의 버전들에서 계산하므로 위시는 "어느 상품인가" 만 알면 된다.
-    // 전환 1단계라 컬럼은 nullable(옛 컨테이너가 안 쓰는 창)이고 읽기는 아직 snapshotId 경로다 — 쓰기만 연결한다.
-    // 후속 단계에서 NOT NULL·읽기 전환·snapshot_id 제거를 한다.
-    @Column(name = "item_id")
-    val itemId: Long? = itemId
-
-    // 활성 snapshot(현재 보여줄 버전) 참조. raw Long(FK 없음). item 정체성은 snapshot.itemId 단일 출처 —
-    // wish 는 itemId 를 따로 들지 않고 snapshot 으로 도달한다. setter 직접 노출 대신 swapSnapshot 명령으로만 바꾼다
-    // (ItemSnapshot 추출 필드와 같은 캡슐화). 5단계 갱신(수동 새로고침)이 이 포인터를 새 버전으로 스왑한다.
+    // 이 위시가 기다리는 행(파싱 버전). raw Long(FK 없음). "보는 값" 이 아니다 — 화면값은 ItemVersions 가 상품의 행들로
+    // 계산하고, 이 값은 카드에 진행 중을 보일지(내가 시작했거나 합류한 등록·갱신)를 가르는 표식이다. 본인의 등록·새로고침·
+    // 합류·수기 수정으로만 움직이고 남이 건드리지 못한다. 컬럼명(snapshot_id)은 옛 이름 그대로다 — rename 은 3단계
+    // 배포를 요구하는데 값의 의미가 코드에서 드러나면 충분해 미룬다.
     @Column(name = "snapshot_id", nullable = false)
-    var snapshotId: Long = snapshotId
+    var waitingSnapshotId: Long = waitingSnapshotId
         protected set
 
     // 엔티티 불변식 — 0·음수는 존재할 수 없는 참조다. 정상 흐름에선 닿지 않고, 닿으면 코드 버그.
     init {
-        require(snapshotId > 0) { "snapshotId 는 양수여야 한다: $snapshotId" }
+        require(waitingSnapshotId > 0) { "waitingSnapshotId 는 양수여야 한다: $waitingSnapshotId" }
         require(itemId > 0) { "itemId 는 양수여야 한다: $itemId" }
     }
 
@@ -53,11 +51,11 @@ class Wish(
         memo = normalized
     }
 
-    // 활성 포인터를 새 추출 버전으로 교체한다(수동 새로고침). 옛 snapshot 행은 유지돼 토너먼트 출전 격리를 지킨다 —
-    // 갱신은 같은 item 의 새 버전을 가리킬 뿐이고, 같은 item 보장은 호출부(서비스)가 진다(wish 는 itemId 를 모른다).
-    fun swapSnapshot(newSnapshotId: Long) {
-        require(newSnapshotId > 0) { "snapshotId 는 양수여야 한다: $newSnapshotId" }
-        snapshotId = newSnapshotId
+    // 기다리는 행을 바꾼다 — 새로고침(새 PENDING 또는 진행 중 합류)·수기 수정(내 MANUAL 행). 옛 행은 이력으로 남고
+    // 출전 pin 은 독립이라 토너먼트 격리를 지킨다. 같은 상품의 행이어야 한다는 보장은 호출부(서비스)가 진다.
+    fun waitFor(snapshotId: Long) {
+        require(snapshotId > 0) { "waitingSnapshotId 는 양수여야 한다: $snapshotId" }
+        waitingSnapshotId = snapshotId
     }
 
     // soft delete — 행을 지우지 않고 deletedAt 으로 마킹한다. 조회는 deletedAt IS NULL 만 본다.

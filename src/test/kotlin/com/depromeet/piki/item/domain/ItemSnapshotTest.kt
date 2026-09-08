@@ -198,7 +198,7 @@ class ItemSnapshotTest {
         base.markExtracted(ProductSnapshot(name = "나이키", price = 99_000, imageUrl = "https://img.example.com/a.png", currency = "KRW"))
         val editor = java.util.UUID.randomUUID()
 
-        val manual = ItemSnapshot.manual(base = base, name = null, price = 79_000, imageUrl = null, currency = null, editedBy = editor)
+        val manual = ItemSnapshot.manual(base = base, name = null, price = 79_000, imageUrl = null, currency = null, createdBy = editor)
 
         assertEquals(ItemStatus.READY, manual.status)
         assertEquals("나이키", manual.name)
@@ -227,7 +227,7 @@ class ItemSnapshotTest {
                 price = 25_000,
                 imageUrl = null,
                 currency = "KRW",
-                editedBy = java.util.UUID.randomUUID(),
+                createdBy = java.util.UUID.randomUUID(),
             )
 
         assertEquals(ItemStatus.READY, manual.status)
@@ -242,7 +242,7 @@ class ItemSnapshotTest {
         val base = ItemSnapshot(itemId = 1L)
         base.markExtracted(ProductSnapshot(imageUrl = "https://img.example.com/a.png"))
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "몬치치", price = null, imageUrl = null, currency = null, editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "몬치치", price = null, imageUrl = null, currency = null, createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -260,7 +260,7 @@ class ItemSnapshotTest {
                 price = 5_000,
                 imageUrl = "https://img.example.com/m.png",
                 currency = "KRW",
-                editedBy = editor,
+                createdBy = editor,
             )
             assertEquals(ItemStatus.READY, manual.status)
             assertEquals(ItemSnapshotSource.MANUAL, manual.source)
@@ -271,7 +271,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 name 이 비면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = null, price = 1_000, imageUrl = "https://img.example.com/a.png", currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = null, price = 1_000, imageUrl = "https://img.example.com/a.png", currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -279,7 +279,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 price 가 없으면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "수기", price = null, imageUrl = "https://img.example.com/a.png", currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "수기", price = null, imageUrl = "https://img.example.com/a.png", currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -287,7 +287,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 imageUrl 이 없으면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "수기", price = 5_000, imageUrl = null, currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "수기", price = 5_000, imageUrl = null, currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 

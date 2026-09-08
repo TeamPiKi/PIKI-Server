@@ -1,10 +1,9 @@
 package com.depromeet.piki.notification.handler
 
-import com.depromeet.piki.item.domain.ItemStatus
+import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.notification.domain.NotificationRouting
 import com.depromeet.piki.tournament.repository.TournamentItemRepository
 import com.depromeet.piki.tournament.repository.TournamentItemUserRoutingView
-import com.depromeet.piki.wishlist.repository.WishOwnerView
 import com.depromeet.piki.wishlist.repository.WishRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -22,6 +21,7 @@ import java.util.UUID
 class ItemParsingRecipientResolver(
     private val wishRepository: WishRepository,
     private val tournamentItemRepository: TournamentItemRepository,
+    private val itemDisplayService: ItemDisplayService,
 ) {
     fun resolve(snapshotId: Long): Set<UUID> {
         val wishOwners = wishRepository.findOwnerWishIdsBySnapshotId(snapshotId).map { it.userId }
@@ -57,44 +57,43 @@ class ItemParsingRecipientResolver(
     // dispatch 는 수신자가 있을 때만 호출하므로 각 수신자는 위시·토너먼트 중 적어도 한쪽에 있어 맵에 반드시 담긴다.
     fun resolveRoutingsBySnapshot(snapshotId: Long): Map<UUID, NotificationRouting> =
         routingsOf(
-            wishRepository.findOwnerWishIdsBySnapshotId(snapshotId),
+            wishRepository.findOwnerWishIdsBySnapshotId(snapshotId).associate { it.userId to it.wishId },
             tournamentItemRepository.findRoutingsWithUserBySnapshotId(snapshotId),
         )
 
-    // 해소 통지(#1028)의 수신자와 라우팅. 위와 달리 **아이템** 으로 찾고 미완성 상태만 고른다 — 이 알림이 가는 곳은
-    // 방금 성공한 버전이 아니라 다른 미완성 버전에 멈춰 있던 사람이라, 버전 역조회로는 한 명도 안 잡힌다.
-    //
-    // 두 알림의 수신자가 배타적인 것도 여기서 나온다: 성공한 버전을 가리키면 READY 라 이 조회에 안 걸리고,
-    // 다른 미완성 버전을 가리키면 완료 알림의 버전 역조회에 안 걸린다. 본인이 새로고침해 성공한 경우는 포인터가
-    // 새 버전으로 옮겨 가 있어 자동으로 새로고침 완료 알림(#1036) 쪽이 된다 — "남 때문에" 를 판정하는 별도 플래그가 필요 없다.
-    fun resolveRecoveredRoutingsByItem(itemId: Long): Map<UUID, NotificationRouting> =
-        routingsOf(
-            wishRepository.findOwnerWishIdsByItemIdAndStatuses(itemId, UNRESOLVED_STATUSES),
-            tournamentItemRepository.findRoutingsWithUserByItemIdAndStatuses(itemId, UNRESOLVED_STATUSES),
-        )
+    // 해소 통지(#1028)의 수신자와 라우팅 — 이 상품의 카드 중 **화면값이 실패·미완이었다가 이 버전으로 채워지는** 카드의
+    // 주인(#1051). 판정(ItemVersions.recovers)은 카드 표시값 규칙 그대로라 알림과 카드가 어긋날 수 없고, 적재도
+    // 표시값과 같은 경로(ItemDisplayService)를 탄다. 이 버전을 기다리는 카드는 완료·새로고침 완료 알림을 받으므로 제외된다.
+    fun resolveRecoveredRoutingsBySnapshot(snapshotId: Long): Map<UUID, NotificationRouting> {
+        // 상품은 버전에서 되짚는다(ItemDisplayService.versionsContaining) — 병합 경합으로 이벤트의 itemId 가 진 상품이어도
+        // 판정은 이긴 상품의 버전들로 한다. 카드 조회도 같은 상품으로 맞춘다.
+        val versions = itemDisplayService.versionsContaining(snapshotId)
+        val itemId = versions.itemId
+        // 상태로 후보를 SQL 에서 좁히지 않는다 — 내 INCOMPLETE 가 기다리는 행(READY)보다 새로우면 규칙 2 로 카드가
+        // 미완성이 되므로, 기다리는 행의 상태만 보는 선필터는 그 카드를 놓친다. 출전은 파생을 타는 대기실(PENDING)만 후보다:
+        // 시작된 토너먼트는 pin 을 박제해 읽으므로 채워질 카드 자체가 없다.
+        val wishIdByUser =
+            wishRepository
+                .findCardsByItemId(itemId)
+                .filter { versions.recovers(viewer = it.userId, waitingOn = it.waitingSnapshotId, snapshotId) }
+                .associate { it.userId to it.wishId }
+        val tournamentRoutings =
+            tournamentItemRepository
+                .findPendingCardsByItemId(itemId)
+                .filter { versions.recovers(viewer = it.userId, waitingOn = it.snapshotId, snapshotId = snapshotId) }
+        return routingsOf(wishIdByUser, tournamentRoutings)
+    }
 
     // 위시 좌표 ∪ 토너먼트 좌표를 수신자별 라우팅 하나로 접는다. 한 유저가 양쪽이면 WISH 우선(위 규칙),
     // 같은 유저의 토너먼트 좌표가 여럿이면 id 오름차순 첫 행(쿼리의 ORDER BY)으로 결정성만 확보한다.
     private fun routingsOf(
-        wishOwners: List<WishOwnerView>,
+        wishIdByUser: Map<UUID, Long>,
         tournamentRoutings: List<TournamentItemUserRoutingView>,
     ): Map<UUID, NotificationRouting> {
-        val wishIdByUser = wishOwners.associate { it.userId to it.wishId }
         val tournamentByUser = tournamentRoutings.groupBy { it.userId }.mapValues { (_, rows) -> rows.first() }
         return (wishIdByUser.keys + tournamentByUser.keys).associateWith { userId ->
             wishIdByUser[userId]?.let { NotificationRouting.Wish(it) }
                 ?: tournamentByUser.getValue(userId).let { NotificationRouting.Tournament(it.tournamentId, it.tournamentItemId) }
         }
-    }
-
-    companion object {
-        // "아직 사람 손이 필요한 상태" — 이 버전을 가리키고 있으면 카드가 비어 있다. 남이 새로고침해 새 성공본이
-        // 생겼는데 나는 옛 READY 를 가리키는 경우가 제외되는 것이 이 목록의 실질적 역할이다(이미 값을 보고 있다).
-        //
-        // 진행 중(PENDING·PROCESSING)이 빠진 것은 사실상 도달 불가능한 상태에 대한 방어다. 기존 item 에 새 PENDING 을
-        // 만드는 길은 공유 등록과 새로고침 둘뿐이고 둘 다 진행 중이 있으면 합류하므로, 한 item 의 진행 중은 하나로
-        // 수렴하고 그 하나가 성공한 것이 이 이벤트다. 다만 새로고침은 item 행 락을 잡지 않아(wish 행 락) 등록과
-        // 동시에 돌면 진행 중이 둘 생길 수 있다 — 상태 화이트리스트라 그 창에서도 옳게 동작한다.
-        private val UNRESOLVED_STATUSES = listOf(ItemStatus.FAILED, ItemStatus.INCOMPLETE)
     }
 }

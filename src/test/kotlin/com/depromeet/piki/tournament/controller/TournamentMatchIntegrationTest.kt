@@ -468,7 +468,7 @@ class TournamentMatchIntegrationTest : IntegrationTestSupport() {
         // 필요한 것은 "READY 인 위시 아이템" 이라는 상태뿐이라 등록 API 를 타지 않고 행을 직접 심는다.
         val item = itemJpaRepository.save(Item(sourceImageKey = "items/raw/${UUID.randomUUID()}.png"))
         val snapshot = itemSnapshotJpaRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = userId))
-        wishJpaRepository.save(Wish(userId = userId, snapshotId = snapshot.getId(), itemId = snapshot.itemId))
+        wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = snapshot.getId(), itemId = snapshot.itemId))
         snapshot.markProcessing()
         itemParsingService.markExtracted(
             snapshot.getId(),

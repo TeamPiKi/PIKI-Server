@@ -85,7 +85,7 @@ class WishRefreshConcurrencyIntegrationTest : IntegrationTestSupport() {
                     extractedAt = LocalDateTime.now(),
                 ),
             )
-        val wish = wishJpaRepository.save(Wish(userId = userId, snapshotId = oldSnapshot.getId(), itemId = oldSnapshot.itemId))
+        val wish = wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = oldSnapshot.getId(), itemId = oldSnapshot.itemId))
         val itemId = item.getId()
 
         val mockMvc =
@@ -179,7 +179,7 @@ class WishRefreshConcurrencyIntegrationTest : IntegrationTestSupport() {
                     extractedAt = LocalDateTime.now(),
                 ),
             )
-        val wish = wishJpaRepository.save(Wish(userId = userId, snapshotId = oldSnapshot.getId(), itemId = oldSnapshot.itemId))
+        val wish = wishJpaRepository.save(Wish(userId = userId, waitingSnapshotId = oldSnapshot.getId(), itemId = oldSnapshot.itemId))
         val itemId = item.getId()
 
         val mockMvc =

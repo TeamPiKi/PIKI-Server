@@ -381,7 +381,7 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         snapshotId: Long,
     ): Long {
         val itemId = requireNotNull(itemSnapshotRepository.findById(snapshotId)) { "snapshot $snapshotId 없음" }.itemId
-        return wishRepository.save(Wish(userId = userId, snapshotId = snapshotId, itemId = itemId)).getId()
+        return wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshotId, itemId = itemId)).getId()
     }
 
     private fun buildMockMvc(): MockMvc =
