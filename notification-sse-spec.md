@@ -123,9 +123,9 @@ data: 3f1c2b0e-7d4a-4c8b-9e2f-1a2b3c4d5e6f
 | Body | `{ "connectionId": "<connect·heartbeat 이벤트로 받은 번호>" }` |
 | 응답 | `200` (`data` 없음) |
 
-**보내는 조건**: SSE 가 연결돼 있고 앱이 포그라운드일 때 **30초마다**. 실패해도 재시도하지 않는다(다음 주기에 다시 보낸다). 백그라운드에선 보내지 않는다.
+**보내는 조건**: SSE 가 연결돼 있고 앱이 포그라운드일 때 **30초마다**. 실패해도 재시도하지 않는다(다음 주기에 다시 보낸다). 백그라운드에선 보내지 않는다. `401` 은 다른 API 와 똑같이 토큰 갱신 대상이다. SSE 연결(30분)이 액세스 토큰(15분)보다 오래 살므로 연결 중에 한 번은 반드시 401 을 만난다. 갱신 뒤 다음 주기에 보내면 된다.
 
-**서버 동작**: 60초 동안 하트비트가 없는 연결을 **정상 종료**한다. 클라이언트는 기존 재연결 로직대로 다시 붙는다. 앱이 백그라운드에서 돌아왔을 때 끊겨 있는 것은 의도된 동작이다.
+**서버 동작**: 하트비트를 한 번이라도 보낸 연결에 한해, 60초 동안 하트비트가 없으면 **정상 종료**한다(검사가 30초 주기라 실제 종료는 60초에서 90초 사이). 클라이언트는 기존 재연결 로직대로 다시 붙는다. 앱이 백그라운드에서 돌아왔을 때 끊겨 있는 것은 의도된 동작이다. 하트비트를 아예 안 보내는 클라이언트(구 버전)는 이 규칙에 걸리지 않고 이전처럼 동작한다.
 
 **`409` (`code = NOTIFICATION-002`)**: 그 번호의 연결이 서버에 없다. 배포로 서버가 바뀌었거나 결측으로 이미 정리된 경우다. **즉시 재연결**한다.
 
@@ -281,18 +281,24 @@ const es = new EventSource("/api/v1/notifications/subscribe", { withCredentials:
 let connectionId;
 let lastHeartbeatAt = Date.now();
 
+function reconnect() {
+  es.close();
+  // 기존 재연결 로직으로 새 EventSource 를 연다. 새 connect 이벤트가 새 connectionId 를 준다.
+}
+
 es.addEventListener("connect", (e) => {
   connectionId = e.data; // 이 연결의 번호. 하트비트 POST 에 되돌려 보낸다
   lastHeartbeatAt = Date.now();
 });
 
-es.addEventListener("heartbeat", (e) => {
-  lastHeartbeatAt = Date.now(); // 서버 ping. 60초 넘게 안 오면 스트림이 죽은 것 → 재연결
+es.addEventListener("heartbeat", () => {
+  lastHeartbeatAt = Date.now(); // 서버 ping. 60초 넘게 안 오면 스트림이 죽은 것
 });
 
-// 연결 중·포그라운드일 때 30초마다 클라이언트 하트비트. 409 면 서버에 이 연결이 없는 것 → 즉시 재연결
+// 연결 중·포그라운드일 때 30초마다: (1) 서버 ping 결측 검사 -> 재연결, (2) 클라이언트 하트비트 POST -> 409 면 재연결
 setInterval(async () => {
   if (document.visibilityState !== "visible" || !connectionId) return;
+  if (Date.now() - lastHeartbeatAt > 60_000) return reconnect();
   const res = await fetch("/api/v1/notifications/heartbeat", {
     method: "POST",
     credentials: "include",
@@ -300,6 +306,7 @@ setInterval(async () => {
     body: JSON.stringify({ connectionId }),
   });
   if (res.status === 409) reconnect();
+  // 401 은 다른 API 와 같이 토큰 갱신 후 다음 주기에 다시 보낸다
 }, 30_000);
 
 es.addEventListener("notification", (e) => {
