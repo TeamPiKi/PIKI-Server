@@ -127,7 +127,7 @@ class WishPersistenceService(
                     price = price,
                     imageUrl = imageUrl,
                     currency = currency,
-                    editedBy = userId,
+                    createdBy = userId,
                 ),
             )
         wish.waitFor(manual.getId())
@@ -154,7 +154,7 @@ class WishPersistenceService(
             price = price,
             imageUrl = PRE_UPLOAD_VALIDATION_IMAGE_URL,
             currency = currency,
-            editedBy = userId,
+            createdBy = userId,
         )
     }
 

@@ -30,8 +30,8 @@ class TournamentItemRepositoryImpl(
     override fun findRoutingsWithUserBySnapshotId(snapshotId: Long): List<TournamentItemUserRoutingView> =
         tournamentItemJpaRepository.findRoutingsWithUserBySnapshotId(snapshotId)
 
-    override fun findCardsByItemId(itemId: Long): List<TournamentItemCardView> =
-        tournamentItemJpaRepository.findCardsByItemId(itemId)
+    override fun findPendingCardsByItemId(itemId: Long): List<TournamentItemCardView> =
+        tournamentItemJpaRepository.findPendingCardsByItemId(itemId)
 
     override fun findAllByTournamentId(tournamentId: Long): List<TournamentItem> =
         tournamentItemJpaRepository.findAllByTournamentIdAndNotDeleted(tournamentId)

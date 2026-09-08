@@ -148,7 +148,7 @@ URL · 토큰 · 사용자 입력 원본 등 민감 정보를 로그에 그대�
 
 - **product** — 외부 상품(쇼핑몰 페이지)과 그 추출 파이프라인. `ProductLink`(외부 URL) · `ProductExtractor` · `ProductSnapshot`(추출 시점 결과).
 - **item** — 상품의 정체성(`link`). 추출값·상태·이력은 버전(`ItemSnapshot`)이 들고, item 은 wish · tournament 가 참조하는 안정적 식별 단위다.
-- **item_snapshot** (`ItemSnapshot`) — item 의 한 추출 버전(name · price · image · currency · status · extracted_at). item 갱신 때마다 새 행이 쌓여 가격·이름 이력을 보존한다. wish 는 활성 버전, tournament_item 은 출전 시점 고정 버전을 가리킨다.
+- **item_snapshot** (`ItemSnapshot`) — item 의 한 추출 버전(name · price · image · currency · status · extracted_at · created_by). item 갱신 때마다 새 행이 쌓여 가격·이름 이력을 보존한다. 화면값은 버전들에서 계산한다(`ItemVersions`, 내 맥락의 값 vs 공유 READY). wish 는 item 을 참조하고 "기다리는 행"(`waitingSnapshotId`)만 따로 들며, tournament_item 은 출전 시점 고정 버전(pin)을 가리킨다.
 - **wish** — user 가 item 을 위시리스트에 담은 기록 (`user_id` + `item_id`).
 - **tournament** — item 들로 겨루는 토너먼트. `tournament_item`(출전 아이템) · `tournament_user`(참여자).
 

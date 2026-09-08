@@ -1,6 +1,7 @@
 package com.depromeet.piki.notification.handler
 
 import com.depromeet.piki.item.domain.ItemSnapshot
+import com.depromeet.piki.item.domain.ItemSnapshotSource
 import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.item.event.ItemParsingCompleted
 import com.depromeet.piki.item.event.ItemParsingFailed
@@ -516,16 +517,18 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
     // ── 해소 통지(#1028): 남의 성공이 내 실패·미완을 풀었을 때 ──────────────────────────
 
     @Test
-    fun `해소 통지 수신자 - 미완성 버전(FAILED·INCOMPLETE)을 가리키던 사람들이고, 이 파싱을 기다린 사람과 배타적이다`() {
+    fun `해소 통지 수신자 - 카드 표시값이 FAILED·INCOMPLETE 였다가 이 버전으로 채워지는 사람들이고, 이 파싱을 기다린 사람과 배타적이다`() {
         // 같은 링크는 한 item 을 공유하므로(#825) 남이 성공시키면 멈춰 있던 카드가 표시값 파생으로 채워진다.
-        // 갈리는 근거는 포인터 위치 하나뿐이다 — 성공한 버전을 가리키면 완료 알림, 다른 미완성 버전이면 해소 통지.
+        // 판정은 카드 표시값 규칙(ItemVersions.recovers) 그대로다 — 이 버전을 기다리면 완료 알림, 화면이 미완성이었다가
+        // 이 버전으로 채워지면 해소 통지.
         val itemId = 4001L
-        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
         val failedOwner = UUID.randomUUID()
         val incompleteOwner = UUID.randomUUID()
         val waitingOwner = UUID.randomUUID()
+        // 멈춰 있던 버전들이 먼저, 성공 버전이 나중이다(id 순서가 곧 시간). 성공 버전이 채우던 순간의 상태로 판정한다.
         wishRepository.save(Wish(failedOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId))
         wishRepository.save(Wish(incompleteOwner, snapshotWithStatus(itemId, ItemStatus.INCOMPLETE, name = "나이키"), itemId))
+        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
         wishRepository.save(Wish(waitingOwner, succeeded, itemId))
 
         val event = ItemParsingCompleted(itemId, succeeded)
@@ -536,8 +539,8 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
 
     @Test
     fun `해소 통지 수신자 - 진행 중이거나 옛 READY 를 가리키는 사람은 제외된다 (negative control)`() {
-        // 옛 READY 는 흔한 실제 케이스다 — 남이 새로고침해 새 성공본을 만들면 나는 옛 성공본을 가리킨 채 남는다.
-        // 이미 값을 보고 있으니 "해소" 라 부를 것이 없다. 상태를 안 가리고 item 으로만 역조회하면 여기서 깨진다.
+        // 옛 READY 는 흔한 실제 케이스다 — 남이 새로고침해 새 성공본을 만들면 나는 옛 성공본을 기다린 채 남는다.
+        // 이미 값을 보고 있으니 "해소" 라 부를 것이 없다. 표시값이 미완성이었는지를 안 보면 여기서 깨진다.
         //
         // 진행 중은 순차 흐름에선 도달 불가능하다(등록·새로고침 둘 다 진행 중이 있으면 합류하므로 item 당 하나로
         // 수렴하고, 그 하나가 성공한 것이 이 이벤트다). 새로고침이 item 행 락을 안 잡아 생기는 경합 창만 남아,
@@ -551,18 +554,75 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
     }
 
     @Test
+    fun `해소 통지 수신자 - 기다리는 행이 FAILED 라도 내 수기값이 카드에 떠 있던 사람은 제외된다 (표시값 규칙)`() {
+        // 기다리는 행의 상태만 보던 옛 규칙과 갈리는 케이스 — 수기로 고쳐 둔 카드는 비어 있던 적이 없으니 "해소" 가 아니다.
+        val itemId = 4004L
+        val fixedOwner = UUID.randomUUID()
+        val stuckOwner = UUID.randomUUID()
+        // 수기·FAILED 가 succeeded 보다 먼저 있어야 "채워지던 순간" 에 존재한다(id 순서가 곧 시간).
+        val fixedWaiting = snapshotWithStatus(itemId, ItemStatus.FAILED)
+        itemSnapshotRepository.save(
+            ItemSnapshot(
+                itemId = itemId,
+                name = "수기",
+                price = 1_000,
+                imageUrl = "https://img.example.com/x.png",
+                status = ItemStatus.READY,
+                extractedAt = LocalDateTime.now(),
+                source = ItemSnapshotSource.MANUAL,
+                editedBy = fixedOwner,
+            ),
+        )
+        val stuckWaiting = snapshotWithStatus(itemId, ItemStatus.FAILED)
+        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
+        wishRepository.save(Wish(fixedOwner, fixedWaiting, itemId))
+        wishRepository.save(Wish(stuckOwner, stuckWaiting, itemId))
+
+        assertEquals(setOf(stuckOwner), parsingRecoveredHandler.resolveRecipients(ItemParsingCompleted(itemId, succeeded)))
+    }
+
+    @Test
+    fun `해소 통지 수신자 - 시작된 토너먼트의 출전 카드는 pin 을 박제해 읽으므로 제외되고, 대기실 카드는 내 INCOMPLETE 로 미완성이었으면 포함된다`() {
+        // 대기실 카드는 pin 이 READY 라도 주인의 더 새 INCOMPLETE(위시 새로고침 결과)가 규칙 2 로 카드를 미완성으로 만든다 —
+        // 기다리는 행의 상태만 보는 선필터로는 못 잡는 케이스라, 후보를 상태로 좁히지 않는다.
+        val itemId = 4005L
+        val pendingAdder = UUID.randomUUID()
+        val startedAdder = UUID.randomUUID()
+        val pendingTournamentId = createRootWithOwner(pendingAdder)
+        val startedTournamentId = createRootWithOwner(startedAdder)
+        val readyPin = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
+        tournamentItemRepository.saveAll(listOf(TournamentItem(pendingTournamentId, pendingAdder, readyPin)))
+        tournamentItemRepository.saveAll(listOf(TournamentItem(startedTournamentId, startedAdder, snapshotWithStatus(itemId, ItemStatus.FAILED))))
+        tournamentRepository.findTournamentById(startedTournamentId)!!.let { it.start(); tournamentRepository.saveTournament(it) }
+        // pendingAdder 의 위시 새로고침이 INCOMPLETE 로 끝난 상황 — pin 보다 새로운 내 INCOMPLETE 라 대기실 카드가 미완성이 된다.
+        itemSnapshotRepository.save(
+            ItemSnapshot(
+                itemId = itemId,
+                name = "일부만",
+                status = ItemStatus.INCOMPLETE,
+                extractedAt = LocalDateTime.now(),
+                source = ItemSnapshotSource.SERVER,
+                createdBy = pendingAdder,
+            ),
+        )
+        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
+
+        assertEquals(setOf(pendingAdder), parsingRecoveredHandler.resolveRecipients(ItemParsingCompleted(itemId, succeeded)))
+    }
+
+    @Test
     fun `해소 통지 라우팅 - 위시 주인은 자기 wishId 를 실은 WISH, 토너먼트 등록자는 자기 출전 좌표를 받는다`() {
         val itemId = 4003L
-        val tournamentId = 1300L
         val wishOwner = UUID.randomUUID()
         val adder = UUID.randomUUID()
-        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
+        val tournamentId = createRootWithOwner(adder)
         val wishId = wishRepository.save(Wish(wishOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId)).getId()
         val tournamentItemId =
             tournamentItemRepository
                 .saveAll(listOf(TournamentItem(tournamentId, adder, snapshotWithStatus(itemId, ItemStatus.FAILED))))
                 .first()
                 .getId()
+        val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
 
         val contexts =
             parsingRecoveredHandler.resolveRecipientContexts(ItemParsingCompleted(itemId, succeeded), setOf(wishOwner, adder))
@@ -578,9 +638,9 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
         val itemId = 4100L
         val waitingOwner = UUID.randomUUID()
         val stuckOwner = UUID.randomUUID()
+        wishRepository.save(Wish(stuckOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId))
         val succeeded = snapshotWithStatus(itemId, ItemStatus.READY, name = "나이키")
         wishRepository.save(Wish(waitingOwner, succeeded, itemId))
-        wishRepository.save(Wish(stuckOwner, snapshotWithStatus(itemId, ItemStatus.FAILED), itemId))
 
         notificationDispatcher.dispatch(ItemParsingCompleted(itemId, succeeded))
 
@@ -820,7 +880,7 @@ class NotificationRecipientResolutionIntegrationTest : IntegrationTestSupport() 
             .save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID()).apply { markProcessing() })
             .getId()
 
-    // 해소 통지(#1028)는 포인터가 가리키는 **상태** 로 수신자를 가르므로, 상태를 지정해 버전을 깐다.
+    // 해소 통지(#1028)는 카드 표시값이 미완성이었는지로 수신자를 가르므로, 상태를 지정해 버전을 깐다.
     private fun snapshotWithStatus(
         itemId: Long,
         status: ItemStatus,

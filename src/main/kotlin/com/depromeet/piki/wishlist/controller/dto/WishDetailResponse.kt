@@ -99,10 +99,10 @@ data class WishDetailResponse(
                 snapshot: ItemSnapshot,
                 requesterId: UUID,
             ): Boolean? {
-                if (snapshot.source != ItemSnapshotSource.MANUAL) return null
-                // 수기 행의 만든 사람이 곧 편집자(#1051). edited_by 는 흡수돼 3단계에서 제거된다.
-                val editor = snapshot.createdBy ?: return null
-                return editor == requesterId
+                if (!snapshot.isManual()) return null
+                // 수기 행의 만든 사람이 곧 편집자(#1051) — 표시값 규칙(ItemVersions)과 같은 술어로 판정한다.
+                snapshot.createdBy ?: return null
+                return snapshot.isOwnedBy(requesterId)
             }
         }
     }

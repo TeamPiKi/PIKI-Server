@@ -208,7 +208,7 @@ class TournamentItemPersistenceService(
                     price = price,
                     imageUrl = imageUrl,
                     currency = currency,
-                    editedBy = userId,
+                    createdBy = userId,
                 ),
             )
         tournamentItem.repinSnapshot(manual.getId())
@@ -242,7 +242,7 @@ class TournamentItemPersistenceService(
             price = price,
             imageUrl = PRE_UPLOAD_VALIDATION_IMAGE_URL,
             currency = currency,
-            editedBy = userId,
+            createdBy = userId,
         )
     }
 

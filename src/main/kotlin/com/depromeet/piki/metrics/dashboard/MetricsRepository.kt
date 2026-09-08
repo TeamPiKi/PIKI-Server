@@ -86,8 +86,7 @@ class MetricsRepository(
         exclude: Boolean,
     ): Long = count("SELECT COUNT(*) FROM wishes WHERE created_at >= ? AND created_at < ?${notInternal(exclude, "user_id")}", ts(from), ts(to))
 
-    // source_url IS NULL = 이미지 등록, NOT NULL = URL 등록. wish 는 snapshot_id 로 정규화돼 item 정체성은
-    // item_snapshots.item_id 를 거쳐 items 에 도달한다(item_id 컬럼 제거됨).
+    // source_url IS NULL = 이미지 등록, NOT NULL = URL 등록. wish 는 item 을 직접 참조한다(#1051, wishes.item_id).
     fun countWishesBySource(
         from: LocalDateTime,
         to: LocalDateTime,
@@ -98,8 +97,7 @@ class MetricsRepository(
                 """
                 SELECT i.source_url IS NULL AS is_image, COUNT(*)
                 FROM wishes w
-                JOIN item_snapshots s ON s.id = w.snapshot_id
-                JOIN items i ON i.id = s.item_id
+                JOIN items i ON i.id = w.item_id
                 WHERE w.created_at >= ? AND w.created_at < ?${notInternal(exclude, "w.user_id")} GROUP BY is_image
                 """.trimIndent(),
                 ts(from),
@@ -118,8 +116,7 @@ class MetricsRepository(
                 """
                 SELECT i.source_url IS NULL AS is_image, COUNT(*)
                 FROM wishes w
-                JOIN item_snapshots s ON s.id = w.snapshot_id
-                JOIN items i ON i.id = s.item_id
+                JOIN items i ON i.id = w.item_id
                 WHERE w.deleted_at IS NULL${notInternal(exclude, "w.user_id")} GROUP BY is_image
                 """.trimIndent(),
             )
@@ -143,7 +140,7 @@ class MetricsRepository(
             jdbcTemplate.query(
                 """
                 SELECT
-                  EXISTS(SELECT 1 FROM wishes w JOIN item_snapshots s2 ON s2.id = w.snapshot_id WHERE s2.item_id = s.item_id) AS is_wish,
+                  EXISTS(SELECT 1 FROM wishes w WHERE w.item_id = s.item_id) AS is_wish,
                   s.status, COUNT(*)
                 FROM item_snapshots s
                 WHERE s.created_at >= ? AND s.created_at < ? AND s.status IN ('READY','FAILED')

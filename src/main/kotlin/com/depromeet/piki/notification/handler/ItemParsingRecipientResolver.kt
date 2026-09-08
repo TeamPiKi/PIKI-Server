@@ -1,9 +1,9 @@
 package com.depromeet.piki.notification.handler
 
-import com.depromeet.piki.item.domain.ItemVersions
-import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.notification.domain.NotificationRouting
 import com.depromeet.piki.tournament.repository.TournamentItemRepository
+import com.depromeet.piki.tournament.repository.TournamentItemUserRoutingView
 import com.depromeet.piki.wishlist.repository.WishRepository
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -21,7 +21,7 @@ import java.util.UUID
 class ItemParsingRecipientResolver(
     private val wishRepository: WishRepository,
     private val tournamentItemRepository: TournamentItemRepository,
-    private val itemSnapshotRepository: ItemSnapshotRepository,
+    private val itemDisplayService: ItemDisplayService,
 ) {
     fun resolve(snapshotId: Long): Set<UUID> {
         val wishOwners = wishRepository.findOwnerWishIdsBySnapshotId(snapshotId).map { it.userId }
@@ -57,73 +57,43 @@ class ItemParsingRecipientResolver(
     // dispatch 는 수신자가 있을 때만 호출하므로 각 수신자는 위시·토너먼트 중 적어도 한쪽에 있어 맵에 반드시 담긴다.
     fun resolveRoutingsBySnapshot(snapshotId: Long): Map<UUID, NotificationRouting> =
         routingsOf(
-            wishRepository.findOwnerWishIdsBySnapshotId(snapshotId).map { WishOwnerRouting(it.userId, it.wishId) },
-            tournamentItemRepository
-                .findRoutingsWithUserBySnapshotId(snapshotId)
-                .map { TournamentRouting(it.userId, it.tournamentId, it.tournamentItemId) },
+            wishRepository.findOwnerWishIdsBySnapshotId(snapshotId).associate { it.userId to it.wishId },
+            tournamentItemRepository.findRoutingsWithUserBySnapshotId(snapshotId),
         )
 
     // 해소 통지(#1028)의 수신자와 라우팅 — 이 상품의 카드 중 **화면값이 실패·미완이었다가 이 버전으로 채워지는** 카드의
-    // 주인(#1051). 판정은 카드 표시값 규칙(ItemVersions) 그대로다: 이 버전을 뺀 버전들로 계산한 표시값이 미완성이고,
-    // 이 버전을 넣으면 표시값이 이 버전이 되는 카드. 화면과 같은 함수를 쓰므로 알림과 카드가 어긋날 수 없다.
-    //
-    // 이 버전을 기다리는 카드는 제외한다 — 그 사람은 완료·새로고침 완료 알림을 받으므로 두 알림은 배타적이다.
-    // 진행 중 카드(다른 파싱을 기다리는 중)도 제외한다 — 표시값이 진행 중이라 "미완성" 이 아니고, 자기 파싱의 결과를 따로 받는다.
-    fun resolveRecoveredRoutingsBySnapshot(
-        itemId: Long,
-        snapshotId: Long,
-    ): Map<UUID, NotificationRouting> {
-        val versions = itemSnapshotRepository.findAllByItemIds(listOf(itemId))
-        val others = versions.filterNot { it.getId() == snapshotId }
-        if (others.isEmpty() || versions.size == others.size) return emptyMap()
-        val before = ItemVersions.of(others)
-        val after = ItemVersions.of(versions)
-
-        fun recovered(
-            owner: UUID,
-            waitingOn: Long,
-        ): Boolean {
-            if (waitingOn == snapshotId) return false
-            val was = before.displayFor(owner, waitingOn)
-            if (!(was.isFailed() || was.isIncomplete())) return false
-            return after.displayFor(owner, waitingOn).getId() == snapshotId
-        }
-        val wishOwners =
+    // 주인(#1051). 판정(ItemVersions.recovers)은 카드 표시값 규칙 그대로라 알림과 카드가 어긋날 수 없고, 적재도
+    // 표시값과 같은 경로(ItemDisplayService)를 탄다. 이 버전을 기다리는 카드는 완료·새로고침 완료 알림을 받으므로 제외된다.
+    fun resolveRecoveredRoutingsBySnapshot(snapshotId: Long): Map<UUID, NotificationRouting> {
+        // 상품은 버전에서 되짚는다(ItemDisplayService.versionsContaining) — 병합 경합으로 이벤트의 itemId 가 진 상품이어도
+        // 판정은 이긴 상품의 버전들로 한다. 카드 조회도 같은 상품으로 맞춘다.
+        val versions = itemDisplayService.versionsContaining(snapshotId)
+        val itemId = versions.itemId
+        // 상태로 후보를 SQL 에서 좁히지 않는다 — 내 INCOMPLETE 가 기다리는 행(READY)보다 새로우면 규칙 2 로 카드가
+        // 미완성이 되므로, 기다리는 행의 상태만 보는 선필터는 그 카드를 놓친다. 출전은 파생을 타는 대기실(PENDING)만 후보다:
+        // 시작된 토너먼트는 pin 을 박제해 읽으므로 채워질 카드 자체가 없다.
+        val wishIdByUser =
             wishRepository
                 .findCardsByItemId(itemId)
-                .filter { recovered(it.userId, it.waitingSnapshotId) }
-                .map { WishOwnerRouting(it.userId, it.wishId) }
+                .filter { versions.recovers(viewer = it.userId, waitingOn = it.waitingSnapshotId, snapshotId) }
+                .associate { it.userId to it.wishId }
         val tournamentRoutings =
             tournamentItemRepository
-                .findCardsByItemId(itemId)
-                .filter { recovered(it.userId, it.snapshotId) }
-                .map { TournamentRouting(it.userId, it.tournamentId, it.tournamentItemId) }
-        return routingsOf(wishOwners, tournamentRoutings)
+                .findPendingCardsByItemId(itemId)
+                .filter { versions.recovers(viewer = it.userId, waitingOn = it.snapshotId, snapshotId = snapshotId) }
+        return routingsOf(wishIdByUser, tournamentRoutings)
     }
 
     // 위시 좌표 ∪ 토너먼트 좌표를 수신자별 라우팅 하나로 접는다. 한 유저가 양쪽이면 WISH 우선(위 규칙),
     // 같은 유저의 토너먼트 좌표가 여럿이면 id 오름차순 첫 행(쿼리의 ORDER BY)으로 결정성만 확보한다.
     private fun routingsOf(
-        wishOwners: List<WishOwnerRouting>,
-        tournamentRoutings: List<TournamentRouting>,
+        wishIdByUser: Map<UUID, Long>,
+        tournamentRoutings: List<TournamentItemUserRoutingView>,
     ): Map<UUID, NotificationRouting> {
-        val wishIdByUser = wishOwners.associate { it.userId to it.wishId }
         val tournamentByUser = tournamentRoutings.groupBy { it.userId }.mapValues { (_, rows) -> rows.first() }
         return (wishIdByUser.keys + tournamentByUser.keys).associateWith { userId ->
             wishIdByUser[userId]?.let { NotificationRouting.Wish(it) }
                 ?: tournamentByUser.getValue(userId).let { NotificationRouting.Tournament(it.tournamentId, it.tournamentItemId) }
         }
     }
-
-    // 저장소 projection(버전 기준·상품 기준)이 달라도 라우팅 접기는 한 모양으로 — 접기 입력을 값으로 정규화한다.
-    private data class WishOwnerRouting(
-        val userId: UUID,
-        val wishId: Long,
-    )
-
-    private data class TournamentRouting(
-        val userId: UUID,
-        val tournamentId: Long,
-        val tournamentItemId: Long,
-    )
 }

@@ -23,8 +23,8 @@ interface TournamentItemRepository {
 
     fun findRoutingsWithUserBySnapshotId(snapshotId: Long): List<TournamentItemUserRoutingView>
 
-    // 이 상품을 출전시킨 카드 전부(등록자, 토너먼트 좌표, pin) — 해소 통지 수신자 판정(#1028·#1051).
-    fun findCardsByItemId(itemId: Long): List<TournamentItemCardView>
+    // 이 상품을 대기실(PENDING) 토너먼트에 출전시킨 카드 — 해소 통지 수신자 후보(#1028·#1051).
+    fun findPendingCardsByItemId(itemId: Long): List<TournamentItemCardView>
 
     fun findAllByTournamentId(tournamentId: Long): List<TournamentItem>
 

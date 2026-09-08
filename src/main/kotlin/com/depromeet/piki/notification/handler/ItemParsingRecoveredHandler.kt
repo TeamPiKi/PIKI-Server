@@ -28,7 +28,7 @@ class ItemParsingRecoveredHandler(
 
     // 아무도 안 멈춰 있으면 빈 집합이고 dispatch 가 거기서 끝난다 — 대다수 파싱 완료가 이 경우다.
     override fun resolveRecipients(event: ItemParsingCompleted): Set<UUID> =
-        recipientResolver.resolveRecoveredRoutingsBySnapshot(event.itemId, event.snapshotId).keys
+        recipientResolver.resolveRecoveredRoutingsBySnapshot(event.snapshotId).keys
 
     // title 의 itemName 은 **방금 성공한 버전** 의 이름이다 — 수신자가 지금 카드에서 보게 되는 그 값.
     override fun resolveActorContext(event: ItemParsingCompleted): ActorContext {
@@ -36,13 +36,14 @@ class ItemParsingRecoveredHandler(
         return ActorContext(variables = mapOf("itemName" to ItemDisplayName.of(name)))
     }
 
-    // 라우팅은 수신자별로 갈린다(#933) — 각자 자기 위시(wishId)/자기 토너먼트 좌표로 간다. 조회는 수신자 도출과
-    // 같은 2회짜리 배치를 한 번 더 도는 것이라 수신자 수와 무관하다(다른 파싱 핸들러와 같은 비용 구조).
+    // 라우팅은 수신자별로 갈린다(#933) — 각자 자기 위시(wishId)/자기 토너먼트 좌표로 간다. dispatcher 가 수신자 도출과
+    // 이 해석을 따로 부르므로 같은 판정(버전 전체 + 미완성 카드 조회 2회)이 이벤트당 두 번 돈다 — 수신자 수에는 비례하지
+    // 않고, 다른 파싱 핸들러와 같은 비용 구조다.
     override fun resolveRecipientContexts(
         event: ItemParsingCompleted,
         recipients: Set<UUID>,
     ): Map<UUID, RecipientContext> {
-        val routings = recipientResolver.resolveRecoveredRoutingsBySnapshot(event.itemId, event.snapshotId)
+        val routings = recipientResolver.resolveRecoveredRoutingsBySnapshot(event.snapshotId)
         // 방어: 수신자인데 좌표를 못 찾으면(그 사이 삭제 등) 위시 폴백 — wishId 없이도 알림은 나간다.
         return recipients.associateWith { userId ->
             RecipientContext(routing = routings[userId] ?: NotificationRouting.Wish(null))

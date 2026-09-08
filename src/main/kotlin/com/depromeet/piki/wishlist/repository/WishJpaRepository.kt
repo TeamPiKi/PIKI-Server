@@ -26,7 +26,8 @@ interface WishJpaRepository : JpaRepository<Wish, Long> {
     ): List<WishOwnerView>
 
     // 이 상품을 담은 위시 카드 전부(주인, 위시 id, 기다리는 행) — 해소 통지(#1028) 수신자 판정용(#1051). 어느 카드가
-    // 이 파싱으로 채워지는지는 알림 쪽이 표시값 규칙(ItemVersions)으로 가른다. 상태 필터를 SQL 에 두지 않는다.
+    // 이 파싱으로 채워지는지는 알림 쪽이 표시값 규칙(ItemVersions)으로 가른다. 상태로 좁히지 않는다 — 카드의 미완성은
+    // 기다리는 행만이 아니라 주인의 다른 행(내 INCOMPLETE)에서도 올 수 있어 SQL 로 정확히 표현되지 않는다.
     @Query(
         "SELECT w.userId AS userId, w.id AS wishId, w.waitingSnapshotId AS waitingSnapshotId FROM Wish w " +
             "WHERE w.itemId = :itemId AND w.deletedAt IS NULL ORDER BY w.id ASC",

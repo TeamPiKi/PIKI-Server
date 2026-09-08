@@ -5,6 +5,8 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 // 카드 표시값 규칙(#1051)의 분기 망라. 입력은 한 상품의 버전들, 카드 주인, 카드가 기다리는 행뿐이라 프레임워크 없이 검증한다.
 // 불변식: 남의 진행 중·남의 수기·남의 미완은 내 카드에 새어 들어오지 않는다. 내 수기값은 그보다 새로운 서버 READY 에만 진다.
@@ -144,6 +146,88 @@ class ItemVersionsTest {
         val legacy = version(1, ItemStatus.READY, source = null, by = other)
 
         assertEquals(legacy, display(listOf(legacy), waitingOn = legacy))
+    }
+
+    // ── 해소 통지 판정(recovers): 이 버전으로 카드가 채워지는가 ──────────────────────────
+
+    @Test
+    fun `기다리던 행이 FAILED 였고 남의 서버 READY 가 생기면 채워진다`() {
+        val myFailed = failed(1, by = me)
+        val othersReady = machineReady(2, by = other)
+
+        assertTrue(ItemVersions.of(listOf(myFailed, othersReady)).recovers(me, waitingOn = 1, snapshotId = 2))
+    }
+
+    @Test
+    fun `기다리던 행이 INCOMPLETE 여도 남의 서버 READY 가 생기면 채워진다`() {
+        val myIncomplete = incomplete(1, by = me)
+        val othersReady = machineReady(2, by = other)
+
+        assertTrue(ItemVersions.of(listOf(myIncomplete, othersReady)).recovers(me, waitingOn = 1, snapshotId = 2))
+    }
+
+    @Test
+    fun `그 버전을 기다리는 카드는 채워진 것이 아니라 완료다 - 두 알림은 배타적`() {
+        val ready = machineReady(1, by = me)
+
+        assertFalse(ItemVersions.of(listOf(ready)).recovers(me, waitingOn = 1, snapshotId = 1))
+    }
+
+    @Test
+    fun `기다리던 행이 FAILED 라도 내 수기값이 이미 카드에 떠 있었으면 채워진 것이 아니다`() {
+        // 옛 규칙(기다리는 행의 상태만 봄)은 이 카드에 해소 통지를 보냈다. 표시값 규칙으로는 카드가 비어 있던 적이 없다.
+        val myManual = manual(1, by = me)
+        val myFailed = failed(2, by = me)
+        val othersReady = machineReady(3, by = other)
+
+        val versions = ItemVersions.of(listOf(myManual, myFailed, othersReady))
+
+        assertFalse(versions.recovers(me, waitingOn = 2, snapshotId = 3))
+    }
+
+    @Test
+    fun `옛 READY 를 보던 카드는 남의 새 READY 로 바뀌어도 채워진 것이 아니다 - 이미 값을 보고 있었다`() {
+        val oldReady = machineReady(1, by = me)
+        val newReady = machineReady(2, by = other)
+
+        assertFalse(ItemVersions.of(listOf(oldReady, newReady)).recovers(me, waitingOn = 1, snapshotId = 2))
+    }
+
+    @Test
+    fun `다른 파싱을 기다리는 진행 중 카드는 채워진 것이 아니다 - 자기 결과를 따로 받는다`() {
+        val myPending = pending(1, by = me)
+        val othersReady = machineReady(2, by = other)
+
+        assertFalse(ItemVersions.of(listOf(myPending, othersReady)).recovers(me, waitingOn = 1, snapshotId = 2))
+    }
+
+    @Test
+    fun `성공 버전이 둘 쌓여도 채워진 순간의 버전 한 번만 채워진 것으로 본다 - 뒤 버전이 앞 버전을 가리지 않는다`() {
+        // 비동기 디스패치·연속 새로고침으로 P1·P2 가 다 있는 채 P1 이벤트를 처리해도 P1 이 채운 것이고, P2 는 이미 값을 보던 카드다.
+        val myFailed = failed(1, by = me)
+        val p1 = machineReady(2, by = other)
+        val p2 = machineReady(3, by = other)
+        val versions = ItemVersions.of(listOf(myFailed, p1, p2))
+
+        assertTrue(versions.recovers(me, waitingOn = 1, snapshotId = 2))
+        assertFalse(versions.recovers(me, waitingOn = 1, snapshotId = 3))
+    }
+
+    @Test
+    fun `그 버전 뒤에 기다리기 시작한 카드는 채워진 것이 아니다`() {
+        val othersReady = machineReady(1, by = other)
+        val myLaterFailed = failed(2, by = me)
+
+        assertFalse(ItemVersions.of(listOf(othersReady, myLaterFailed)).recovers(me, waitingOn = 2, snapshotId = 1))
+    }
+
+    @Test
+    fun `판정 대상 버전이 이 상품에 없으면 코드 버그다`() {
+        val ready = machineReady(1, by = me)
+
+        assertFailsWith<IllegalArgumentException> {
+            ItemVersions.of(listOf(ready)).recovers(me, waitingOn = 1, snapshotId = 99)
+        }
     }
 
     @Test
