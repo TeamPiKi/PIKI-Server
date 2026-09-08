@@ -108,10 +108,12 @@ interface TournamentJpaRepository : JpaRepository<Tournament, Long> {
 
     fun findBySourceTournamentIdAndDeletedAtIsNull(sourceTournamentId: Long): List<Tournament>
 
-    // 목록 카드가 여러 ROOT 의 클론을 한 번에 읽는다(#1062) — 카드마다 위 단건 조회를 돌면 N+1 이 된다.
-    @Query("SELECT t FROM Tournament t WHERE t.sourceTournamentId IN :sourceTournamentIds AND t.deletedAt IS NULL")
-    fun findBySourceTournamentIdInAndNotDeleted(
-        @Param("sourceTournamentIds") sourceTournamentIds: Collection<Long>,
+    // 목록 카드가 여러 ROOT 의 완료된 클론을 한 번에 읽는다(#1062) — 카드마다 위 단건 조회를 돌면 N+1 이 된다.
+    // 완주 집계가 유일한 용도라 status 필터를 쿼리에 둔다. 전부 읽어와 메모리에서 거르면 진행 중 클론이 많은
+    // 토너먼트에서 버릴 엔티티를 그만큼 로드한다 (CodeRabbit).
+    fun findBySourceTournamentIdInAndStatusAndDeletedAtIsNull(
+        sourceTournamentIds: Collection<Long>,
+        status: TournamentStatus,
     ): List<Tournament>
 
     // 활성 초대코드 조회는 base 컬럼 invite_code 가 아니라 generated 컬럼 active_invite_code 로 한다.

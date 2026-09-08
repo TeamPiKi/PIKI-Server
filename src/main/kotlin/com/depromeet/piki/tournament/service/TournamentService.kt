@@ -684,8 +684,7 @@ class TournamentService(
             .findCompletedByTournamentIds(rootIds)
             .groupBy { it.tournamentId }
         val completedClonesByRootId = tournamentRepository
-            .findBySourceTournamentIds(rootIds)
-            .filter { it.isCompleted() }
+            .findCompletedBySourceTournamentIds(rootIds)
             .groupBy { it.sourceTournamentId }
         val cloneOwnerTUById = tournamentUserRepository
             .findByIds(completedClonesByRootId.values.flatten().map { it.ownerTournamentUserId }.toSet())
