@@ -54,9 +54,11 @@ SSE 한 연결 위로 아래 네 가지가 흐른다. 클라이언트는 **이�
 
 구독 직후 **1회** 전송. 응답 헤더를 즉시 flush 해 클라이언트가 "연결됨"을 곧장 인지하게 한다.
 
+`data` 는 **이 연결의 번호(UUID)** 다. 서버가 연결마다 새로 부여한다. 클라이언트는 이 값을 보관했다가 클라이언트 하트비트(`POST /api/v1/notifications/heartbeat`, 4-1 절)에 되돌려 보낸다. 재연결하면 번호가 바뀌므로 매번 새로 보관한다.
+
 ```text
 event: connect
-data: connected
+data: 3f1c2b0e-7d4a-4c8b-9e2f-1a2b3c4d5e6f
 ```
 
 ### (2) `notification` — 알림 1건 (핵심)
@@ -96,13 +98,38 @@ data: {"type":"TOURNAMENT_ITEM_PARSED","tournamentId":99,"tournamentItemId":555,
 - 주최자가 아이템을 추가해 참여자 화면에 뜬 **PENDING 로딩 카드**(`notification` 의 `TOURNAMENT_ITEM_ADDED` 로 뜸)를 파싱 완료/실패로 마무리한다.
 - 위시로만 담긴(어느 토너먼트에도 없는) 아이템의 파싱 완료/실패는 오지 않는다 — 위시 주인은 `notification`(`ITEM_PARSING_*`)으로 받는다.
 
-### (4) 하트비트 (주석 ping)
+### (4) `heartbeat` — 서버 ping (스트림 생존 신호)
 
-약 **30초 간격**. 연결 유지(프록시 read timeout 회피)용이며 **`data` 이벤트가 아니다.** SSE 주석 라인(`:` 으로 시작)이라 `EventSource` 의 `onmessage`/리스너에 잡히지 않는다. **클라이언트는 무시하면 된다.**
+약 **30초 간격**. 연결 유지(프록시 read timeout 회피)와 **클라이언트가 스트림 생존을 관측하는 재료** 두 역할을 한다. `data` 는 `connect` 와 같은 연결 번호다.
 
 ```text
-: ping
+event: heartbeat
+data: 3f1c2b0e-7d4a-4c8b-9e2f-1a2b3c4d5e6f
 ```
+
+**클라이언트는 이 이벤트가 60초 동안 안 오면 스트림이 죽은 것으로 보고 재연결한다.** SSE 는 한 연결을 오래 붙잡고 있어 중간 프록시·이동통신망에서 조용히 끊겨도 양쪽 다 모를 수 있고, 조용한 시간엔 이 이벤트가 유일한 유입이라 이걸로만 알 수 있다. 임계값을 30초 + 30초로 넉넉히 두는 이유는 프록시 지연으로 한 번 밀린 것을 끊김으로 오판하면 멀쩡한 연결을 끊었다 다시 붙이는 낭비가 나기 때문이다.
+
+(이전엔 SSE 주석 라인 `: ping` 이었다. 주석은 표준 `EventSource` 에 노출되지 않아 관측이 불가능했다.)
+
+### 4-1. 클라이언트 하트비트 — `POST /api/v1/notifications/heartbeat`
+
+스트림과 반대 방향의 생존 신호다. 서버 ping 은 서버 쪽 프록시(nginx)까지 도달한 것만 확인되므로, 클라이언트가 비정상 종료(강제 종료·전파 끊김)돼도 서버는 프록시의 TCP 재전송이 끝나는 **약 17분 뒤**에야 안다. 그 사이 서버는 죽은 연결을 살아 있는 것으로 취급한다. 클라이언트가 직접 알려야 서버가 제때 정리한다.
+
+| 항목 | 값 |
+|---|---|
+| Method | `POST` |
+| Path | `/api/v1/notifications/heartbeat` |
+| 인증 | 필요 (구독과 동일) |
+| Body | `{ "connectionId": "<connect·heartbeat 이벤트로 받은 번호>" }` |
+| 응답 | `200` (`data` 없음) |
+
+**보내는 조건**: SSE 가 연결돼 있고 앱이 포그라운드일 때 **30초마다**. 실패해도 재시도하지 않는다(다음 주기에 다시 보낸다). 백그라운드에선 보내지 않는다.
+
+**서버 동작**: 60초 동안 하트비트가 없는 연결을 **정상 종료**한다. 클라이언트는 기존 재연결 로직대로 다시 붙는다. 앱이 백그라운드에서 돌아왔을 때 끊겨 있는 것은 의도된 동작이다.
+
+**`409` (`code = NOTIFICATION-002`)**: 그 번호의 연결이 서버에 없다. 배포로 서버가 바뀌었거나 결측으로 이미 정리된 경우다. **즉시 재연결**한다.
+
+두 방향을 연결 번호가 같은 연결로 묶는다: 서버 → 클라 `heartbeat` = 스트림 생존(클라이언트가 판정), 클라 → 서버 `POST /heartbeat` = 클라이언트 생존(서버가 판정). "`POST` 는 되는데 SSE 만 죽은" 경우는 클라이언트가 `heartbeat` 이벤트 결측으로 알아채 재연결하고, 새 번호로 `POST` 가 오기 시작하면 서버가 옛 연결을 60초 안에 정리한다.
 
 ---
 
@@ -207,7 +234,8 @@ data: {"type":"UNREAD_COUNT_CHANGED","unreadCount":1}
 | 항목 | 값 | 비고 |
 |---|---|---|
 | 연결 타임아웃 | **30분** | 만료 시 서버가 연결을 닫음. |
-| 하트비트 주기 | **30초** | nginx proxy_read_timeout(60s) 아래로 유지. |
+| 서버 ping(`heartbeat` 이벤트) 주기 | **30초** | nginx proxy_read_timeout(60s) 아래로 유지. 60초 결측이면 클라이언트가 재연결. |
+| 클라이언트 하트비트(`POST /heartbeat`) 주기 | **30초** | 포그라운드·연결 중에만. 60초 결측이면 서버가 정상 종료(4-1 절). |
 | 재연결 | **클라이언트 책임** | 끊기면(타임아웃·네트워크) 재호출해 다시 연다. |
 | 인증 검증 시점 | **연결을 여는 순간 1회만** | 아래 "토큰 만료" 참고. |
 
@@ -250,9 +278,29 @@ data: {"type":"UNREAD_COUNT_CHANGED","unreadCount":1}
 ```js
 const es = new EventSource("/api/v1/notifications/subscribe", { withCredentials: true });
 
-es.addEventListener("connect", () => {
-  console.log("SSE 연결됨");
+let connectionId;
+let lastHeartbeatAt = Date.now();
+
+es.addEventListener("connect", (e) => {
+  connectionId = e.data; // 이 연결의 번호. 하트비트 POST 에 되돌려 보낸다
+  lastHeartbeatAt = Date.now();
 });
+
+es.addEventListener("heartbeat", (e) => {
+  lastHeartbeatAt = Date.now(); // 서버 ping. 60초 넘게 안 오면 스트림이 죽은 것 → 재연결
+});
+
+// 연결 중·포그라운드일 때 30초마다 클라이언트 하트비트. 409 면 서버에 이 연결이 없는 것 → 즉시 재연결
+setInterval(async () => {
+  if (document.visibilityState !== "visible" || !connectionId) return;
+  const res = await fetch("/api/v1/notifications/heartbeat", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId }),
+  });
+  if (res.status === 409) reconnect();
+}, 30_000);
 
 es.addEventListener("notification", (e) => {
   const n = JSON.parse(e.data);
@@ -323,7 +371,7 @@ fun openSse() {
     EventSources.createFactory(client).newEventSource(request, object : EventSourceListener() {
         override fun onEvent(es: EventSource, id: String?, type: String?, data: String) {
             when (type) {
-                "connect" -> { /* 연결됨 */ }
+                "connect" -> { connectionId = data /* 연결 번호. 30초마다 POST /heartbeat {connectionId} */ }
                 "notification" -> {
                     val n = json.decode<NotificationPayload>(data)
                     // 반드시 type 으로 먼저 분기한다(kind 는 라벨·아이콘용 — 좌표 유무를 가르지 않는다):
@@ -347,7 +395,7 @@ fun openSse() {
                         }
                     }
                 }
-                // 그 외(주석 ping 등)는 무시
+                "heartbeat" -> { /* 서버 ping. 마지막 수신 시각 갱신 - 60초 결측이면 재연결 */ }
             }
         }
 
@@ -370,7 +418,9 @@ fun openSse() {
 - [ ] **좌표(`tournamentId`·`tournamentItemId`) 유무는 `kind` 가 아니라 `type` 이 가른다** — `kind === "TOURNAMENT"` 만 보고 좌표를 읽지 말 것 (소셜 알림도 그 `kind` 지만 좌표가 없다)
 - [ ] 파싱 알림(`ITEM_PARSING_*`)은 **그 `type` 분기 안에서만** `kind` 로 출처 분기 (WISH → `/archive/wish`, TOURNAMENT → `tournamentId`·`tournamentItemId`)
 - [ ] `silent-sync` 는 알림이 아닌 **화면 갱신 신호** — payload 의 `type` 으로 분기 (`TOURNAMENT_ITEM_PARSED` 면 `(tournamentId, tournamentItemId)` 로 카드를 찾아 `status`(READY/FAILED) 반영). 토스트·알림센터 아님
-- [ ] 주석 `: ping` 은 무시 (data 이벤트 아님)
+- [ ] `connect`·`heartbeat` 의 `data`(연결 번호) 보관, 재연결 시 갱신
+- [ ] `heartbeat` 이벤트 60초 결측이면 재연결
+- [ ] 연결 중·포그라운드일 때 30초마다 `POST /api/v1/notifications/heartbeat` `{connectionId}`, `409` 면 즉시 재연결
 - [ ] 재연결 시 목록 API 로 놓친 알림 동기화
 - [ ] WEB 은 쿠키 인증(`withCredentials`), APP 은 `Authorization` 헤더
 - [ ] **재연결 시 토큰이 만료됐으면 refresh 후 새 토큰으로 연결** (연결 도중 만료는 무관, 재연결 시점이 관건)
