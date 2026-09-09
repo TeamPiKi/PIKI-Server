@@ -90,7 +90,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
             val jpgKey = uploads.path(1).path("imageKey").asText()
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.png$").matches(pngKey), "png imageKey 형식: $pngKey")
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.jpg$").matches(jpgKey), "jpg imageKey 형식: $jpgKey")
-            assertEquals(listOf<Long?>(2_048L, 2_048L), stubImageStorage.presignedContentLengths.drop(presignedBefore))
+            assertEquals(listOf(2_048L, 2_048L), stubImageStorage.presignedContentLengths.drop(presignedBefore))
         } finally {
             cleanup(userId)
         }
@@ -141,11 +141,11 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
-    fun `contentLength 를 생략하면 크기 없이 발급된다 (과도기 호환)`() {
+    fun `contentLength 를 생략하면 UPLOAD-004 로 400 이고 서명이 발급되지 않는다`() {
         val mockMvc = buildMockMvc()
         val userId = UUID.randomUUID()
         insertMember(userId)
-        val presignedBefore = stubImageStorage.presignedContentLengths.size
+        val presignedBefore = stubImageStorage.presignedKeys.size
         try {
             val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = null))
             mockMvc
@@ -154,20 +154,19 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
                         .content(body),
-                ).andExpect(status().isOk)
-                .andExpect(jsonPath("$.data.uploads.length()").value(1))
-            assertEquals(listOf<Long?>(null), stubImageStorage.presignedContentLengths.drop(presignedBefore))
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("UPLOAD-004"))
+            assertEquals(presignedBefore, stubImageStorage.presignedKeys.size)
         } finally {
             cleanup(userId)
         }
     }
 
     @Test
-    fun `구버전 contentTypes 형식으로 발급하면 크기 없이 발급된다 (과도기 호환)`() {
+    fun `구버전 contentTypes 형식은 images 가 없는 요청이라 400 으로 거부된다`() {
         val mockMvc = buildMockMvc()
         val userId = UUID.randomUUID()
         insertMember(userId)
-        val presignedBefore = stubImageStorage.presignedContentLengths.size
         try {
             val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png", "image/jpeg")))
             mockMvc
@@ -176,10 +175,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
                         .content(body),
-                ).andExpect(status().isOk)
-                .andExpect(jsonPath("$.data.uploads.length()").value(2))
-                .andExpect(jsonPath("$.data.uploads[1].contentType").value("image/jpeg"))
-            assertEquals(listOf<Long?>(null, null), stubImageStorage.presignedContentLengths.drop(presignedBefore))
+                ).andExpect(status().isBadRequest)
         } finally {
             cleanup(userId)
         }
