@@ -35,8 +35,7 @@ class ItemSnapshot(
 ) : LongBaseEntity() {
     // 이 버전을 만든 맥락의 사람(#1051) — 서버 행은 파싱을 시킨 사람(등록자·새로고침한 사람), MANUAL 행은 고친 사람.
     // 카드 표시값(ItemVersions)이 "내 맥락의 행" 을 가르는 유일한 근거다. 도입 전 행은 추정 백필로 채우되 아무도
-    // 가리키지 않던 옛 이력은 null(모름)로 남는다. 옛 edited_by 컬럼은 여기에 흡수돼 더 이상 매핑하지 않는다 —
-    // 컬럼 자체는 DB 에 남아 있고(아무도 안 읽음), DROP 은 옛 코드가 완전히 사라진 뒤 아무 릴리즈에나 한 줄로 붙인다.
+    // 가리키지 않던 옛 이력은 null(모름)로 남는다. 옛 edited_by 컬럼은 여기에 흡수돼 제거됐다(V20260909171435).
     @Column(name = "created_by", columnDefinition = "BINARY(16)")
     var createdBy: UUID? = createdBy
         protected set
