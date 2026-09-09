@@ -196,8 +196,6 @@ notification:
   cleanup-cron: ${NOTIFICATION_CLEANUP_CRON:0 0 4 * * *}
   sse:
     client-heartbeat:
-      # 클라이언트가 하트비트를 붙인 걸 확인한 뒤 켠다.
-      eviction-enabled: ${SSE_CLIENT_HEARTBEAT_EVICTION_ENABLED:false}
       # 단위 없는 숫자는 초. ping 주기(30초) 이하면 부팅에 실패한다.
       stale-after: ${SSE_CLIENT_HEARTBEAT_STALE_AFTER:60s}
 

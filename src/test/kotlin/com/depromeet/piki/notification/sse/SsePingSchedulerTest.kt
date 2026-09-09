@@ -9,12 +9,11 @@ class SsePingSchedulerTest {
     private val localDelivery = LocalSseDelivery(SseEmitterRegistry())
 
     @Test
-    fun `기본 프로퍼티(정리 off, 임계값 60초)로는 생성된다`() {
+    fun `기본 프로퍼티(임계값 60초)로는 생성된다`() {
         val properties = SseClientHeartbeatProperties()
 
         SsePingScheduler(localDelivery, properties)
 
-        assertEquals(false, properties.evictionEnabled)
         assertEquals(Duration.ofSeconds(60), properties.staleAfter)
     }
 
