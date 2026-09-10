@@ -42,8 +42,6 @@ class WishlistController(
 ) : WishlistApi {
     private fun toResponse(result: WishWithItem): WishItemResponse = WishItemResponse.from(result)
 
-    // 유입 경로(#1074)는 여기서 받아 여기서 기록하고 아래로 넘기지 않는다. 서비스에 파라미터로 넘기면
-    // 도메인 계층이 관측을 알게 되고, 다음 관측 요구가 올 때마다 시그니처가 늘어난다.
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     override fun registerFromUrl(

@@ -23,9 +23,8 @@ import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import kotlin.test.assertEquals
 
-// 링크 담기의 유입 경로 기록(#1074). 등록은 비동기 워커를 띄우므로 @Transactional 자동 롤백을 쓰지 않는다 —
-// 워커가 미커밋 데이터를 못 보면 흐름이 실제와 달라진다(WishlistRegisterAsyncIntegrationTest 와 같은 결).
-// 자기가 만든 행은 격리 userId 로 구분해 메서드 끝에서 정리한다.
+// 등록이 비동기 워커를 띄우므로 @Transactional 자동 롤백을 쓰지 않는다 — 워커가 미커밋 데이터를 못 보면
+// 흐름이 실제와 달라진다(WishlistRegisterAsyncIntegrationTest 와 같은 결).
 class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     @Autowired
     private lateinit var webApplicationContext: WebApplicationContext
@@ -86,7 +85,6 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         try {
-            // 클라이언트가 새 값을 서버보다 먼저 배포하는 상황. 관측 하나 때문에 등록이 실패하면 본말이 전도된다.
             register(userId, "https://shop.example.com/products/4", entryPoint = "WIDGET")
 
             assertEquals(listOf(EntryPoint.UNKNOWN.name), recordedEntryPoints(userId))
@@ -95,7 +93,6 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // 등록 요청 한 건. entryPoint 가 null 이면 헤더 자체를 붙이지 않아 구버전 앱을 재현한다.
     private fun register(
         userId: UUID,
         url: String,
@@ -136,7 +133,6 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
 
     private fun memberToken(userId: UUID): String = jwtProvider.generateAccessToken(userId, IdentityType.MEMBER)
 
-    // @Transactional 자동 롤백이 없으므로 이 테스트가 만든 행을 직접 정리한다.
     private fun cleanup(userId: UUID) {
         jdbcTemplate.update("DELETE FROM wish_registration_events WHERE user_id = ?", uuidToBytes(userId))
         val itemIds =
