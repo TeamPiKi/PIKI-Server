@@ -3,8 +3,6 @@ package com.depromeet.piki.metrics.registration
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
-// best-effort — 여기서 터진 예외를 위로 올리면 이미 성공한 등록이 5xx 로 뒤집힌다
-// (DailyActivityRecorder 와 같은 결).
 @Component
 class WishRegistrationRecorder(
     private val repository: WishRegistrationEventRepository,
