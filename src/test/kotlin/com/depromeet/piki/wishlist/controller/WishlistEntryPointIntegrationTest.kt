@@ -2,9 +2,8 @@ package com.depromeet.piki.wishlist.controller
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
 import com.depromeet.piki.metrics.registration.EntryPoint
-import com.depromeet.piki.product.service.ProductSnapshot
 import com.depromeet.piki.support.IntegrationTestSupport
-import com.depromeet.piki.support.StubProductLinkExtractor
+import com.depromeet.piki.support.StubItemParsingWorker
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.user.domain.IdentityType
 import org.junit.jupiter.api.Test
@@ -23,8 +22,9 @@ import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 import kotlin.test.assertEquals
 
-// 등록이 비동기 워커를 띄우므로 @Transactional 자동 롤백을 쓰지 않는다 — 워커가 미커밋 데이터를 못 보면
-// 흐름이 실제와 달라진다(WishlistRegisterAsyncIntegrationTest 와 같은 결).
+// 등록이 실제로 커밋돼야 하므로 @Transactional 자동 롤백을 쓰지 않는다. 대신 파싱 워커를 꺼 둔다 —
+// 유입 경로 행은 등록과 동기로 쓰이고 파싱 결과는 이 테스트의 관심사가 아닌데, 워커를 살려 두면
+// 스케줄러 폴링(fixedDelay)이 집어간 파싱이 테스트 종료 후까지 살아남아 정리한 행을 건드린다.
 class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     @Autowired
     private lateinit var webApplicationContext: WebApplicationContext
@@ -39,57 +39,59 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     private lateinit var jwtProvider: JwtProvider
 
     @Autowired
-    private lateinit var stubProductLinkExtractor: StubProductLinkExtractor
+    private lateinit var stubItemParsingWorker: StubItemParsingWorker
 
     @Test
     fun `공유 시트로 들어온 등록은 EXTERNAL_SHARE 로 기록된다`() {
         val userId = UUID.randomUUID()
-        insertMember(userId)
-        try {
+        withMember(userId) {
             register(userId, "https://shop.example.com/products/1", entryPoint = "EXTERNAL_SHARE")
 
             assertEquals(listOf(EntryPoint.EXTERNAL_SHARE.name), recordedEntryPoints(userId))
-        } finally {
-            cleanup(userId)
         }
     }
 
     @Test
     fun `앱 안에서 담은 등록은 IN_APP 으로 기록된다`() {
         val userId = UUID.randomUUID()
-        insertMember(userId)
-        try {
+        withMember(userId) {
             register(userId, "https://shop.example.com/products/2", entryPoint = "IN_APP")
 
             assertEquals(listOf(EntryPoint.IN_APP.name), recordedEntryPoints(userId))
-        } finally {
-            cleanup(userId)
         }
     }
 
     @Test
     fun `헤더를 보내지 않은 구버전 앱의 등록도 201 이 나가고 UNKNOWN 으로 기록된다`() {
         val userId = UUID.randomUUID()
-        insertMember(userId)
-        try {
+        withMember(userId) {
             register(userId, "https://shop.example.com/products/3", entryPoint = null)
 
             assertEquals(listOf(EntryPoint.UNKNOWN.name), recordedEntryPoints(userId))
-        } finally {
-            cleanup(userId)
         }
     }
 
     @Test
     fun `서버가 모르는 헤더 값이 와도 등록은 201 이고 UNKNOWN 으로 접혀 기록된다`() {
         val userId = UUID.randomUUID()
-        insertMember(userId)
-        try {
+        withMember(userId) {
             register(userId, "https://shop.example.com/products/4", entryPoint = "WIDGET")
 
             assertEquals(listOf(EntryPoint.UNKNOWN.name), recordedEntryPoints(userId))
+        }
+    }
+
+    private fun withMember(
+        userId: UUID,
+        block: () -> Unit,
+    ) {
+        stubItemParsingWorker.enabled = false
+        insertMember(userId)
+        try {
+            block()
         } finally {
             cleanup(userId)
+            stubItemParsingWorker.enabled = true
         }
     }
 
@@ -98,7 +100,6 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
         url: String,
         entryPoint: String?,
     ) {
-        stubProductLinkExtractor.build = { ProductSnapshot(link = it, name = "나이키 에어포스", price = 99_000) }
         val request =
             post("/api/v1/wishlists")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -139,21 +140,18 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     private fun memberToken(userId: UUID): String = jwtProvider.generateAccessToken(userId, IdentityType.MEMBER)
 
     private fun cleanup(userId: UUID) {
-        val wishIds =
+        // item 은 wishes.item_id 로 직접 잡는다. snapshot_id 는 "지금 어느 파싱을 기다리는가" 라 파싱·병합이 갈아끼운다.
+        val wishes =
             jdbcTemplate.queryForList(
-                "SELECT id FROM wishes WHERE user_id = ?",
-                Long::class.java,
+                "SELECT id, item_id FROM wishes WHERE user_id = ?",
                 uuidToBytes(userId),
             )
+        val wishIds = wishes.mapNotNull { it["id"] as? Long }
+        val itemIds = wishes.mapNotNull { it["item_id"] as? Long }.distinct()
+
         wishIds.takeIf { it.isNotEmpty() }?.let {
             jdbcTemplate.update("DELETE FROM wish_registration_events WHERE wish_id IN (${it.joinToString(",")})")
         }
-        val itemIds =
-            jdbcTemplate.queryForList(
-                "SELECT s.item_id FROM wishes w JOIN item_snapshots s ON s.id = w.snapshot_id WHERE w.user_id = ?",
-                Long::class.java,
-                uuidToBytes(userId),
-            )
         jdbcTemplate.update("DELETE FROM wishes WHERE user_id = ?", uuidToBytes(userId))
         itemIds.takeIf { it.isNotEmpty() }?.let {
             jdbcTemplate.update("DELETE FROM item_links WHERE item_id IN (${it.joinToString(",")})")
