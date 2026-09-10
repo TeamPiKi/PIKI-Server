@@ -157,9 +157,8 @@ interface WishlistApi {
             `in` = ParameterIn.HEADER,
             name = EntryPoint.HEADER,
             required = false,
-            description = "이 등록이 어느 경로로 들어왔는지 — EXTERNAL_SHARE(타앱 공유 시트) · IN_APP(앱 안에서 링크 입력). " +
-                "서버 카운팅 전용이라 등록 결과에는 영향이 없다. 누락하거나 서버가 모르는 값을 보내도 400 이 아니라 " +
-                "UNKNOWN 으로 집계될 뿐이므로, 클라이언트가 새 값을 먼저 배포해도 안전하다.",
+            description = "담기 유입 경로. EXTERNAL_SHARE 는 타앱 공유 시트로 넘어온 경우, IN_APP 은 앱 안에서 링크를 넣은 경우다. " +
+                "집계 전용이라 보내든 안 보내든 등록 결과는 같고, 생략하거나 모르는 값을 보내도 400 이 아니라 UNKNOWN 으로 센다.",
             schema = Schema(type = "string", allowableValues = ["EXTERNAL_SHARE", "IN_APP"]),
         )
         rawEntryPoint: String?,
