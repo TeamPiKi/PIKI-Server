@@ -24,9 +24,7 @@ class SsePingScheduler(
     @Scheduled(fixedRate = PING_INTERVAL_MS)
     fun tick() {
         localDelivery.ping()
-        if (clientHeartbeat.evictionEnabled) {
-            localDelivery.evictStale(Instant.now(), clientHeartbeat.staleAfter)
-        }
+        localDelivery.evictStale(Instant.now(), clientHeartbeat.staleAfter)
     }
 
     companion object {
