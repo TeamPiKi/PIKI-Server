@@ -2,6 +2,7 @@ package com.depromeet.piki.user.controller
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
 import com.depromeet.piki.common.storage.ImageStorageException
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.support.IntegrationTestSupport
 import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.uuidToBytes
@@ -10,10 +11,6 @@ import com.depromeet.piki.user.controller.dto.ProfileImagePresignRequest
 import com.depromeet.piki.user.controller.dto.UserUpdateRequest
 import com.depromeet.piki.user.domain.IdentityType
 import com.depromeet.piki.user.domain.User
-import java.util.UUID
-import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.Test
@@ -31,6 +28,10 @@ import org.springframework.test.web.servlet.setup.DefaultMockMvcBuilder
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.context.WebApplicationContext
+import java.util.UUID
+import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 @Transactional
 class UserControllerIntegrationTest : IntegrationTestSupport() {
@@ -216,7 +217,7 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
             .perform(
                 post("/api/v1/users/me/profile-image")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentType":"image/png"}""")
+                    .content("""{"contentType":"image/png","contentLength":1024}""")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
             ).andExpect(status().isOk)
             // key 는 확정 때 되돌려받아 형식 검증을 통과해야 하므로 발급 형식(items/raw/{UUID}.{ext})을 고정한다.
@@ -243,7 +244,7 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
             .perform(
                 post("/api/v1/users/me/profile-image")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentType":"image/png"}""")
+                    .content("""{"contentType":"image/png","contentLength":1024}""")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.GUEST)}"),
             ).andExpect(status().isForbidden)
             .andExpect(jsonPath("$.code").value("USER-008"))
@@ -268,10 +269,54 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
             .perform(
                 post("/api/v1/users/me/profile-image")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentType":"image/gif"}""")
+                    .content("""{"contentType":"image/gif","contentLength":1024}""")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
             ).andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.code").value("USER-010"))
+    }
+
+    @Test
+    fun `POST users me profile-image - contentLength 가 5MB 를 넘으면 UPLOAD-003 으로 400 이 반환된다`() {
+        val mockMvc =
+            MockMvcBuilders
+                .webAppContextSetup(webApplicationContext)
+                .apply<DefaultMockMvcBuilder>(springSecurity())
+                .build()
+        val userId = UUID.randomUUID()
+        insertUser(userId, identityType = IdentityType.MEMBER)
+        val presignedBefore = stubImageStorage.presignedKeys.size
+
+        mockMvc
+            .perform(
+                post("/api/v1/users/me/profile-image")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"contentType":"image/png","contentLength":${UploadSize.MAX_BYTES + 1}}""")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
+            ).andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("UPLOAD-003"))
+        assertEquals(presignedBefore, stubImageStorage.presignedKeys.size)
+    }
+
+    @Test
+    fun `POST users me profile-image - contentLength 를 생략하면 UPLOAD-004 로 400 이 반환된다`() {
+        val mockMvc =
+            MockMvcBuilders
+                .webAppContextSetup(webApplicationContext)
+                .apply<DefaultMockMvcBuilder>(springSecurity())
+                .build()
+        val userId = UUID.randomUUID()
+        insertUser(userId, identityType = IdentityType.MEMBER)
+        val presignedBefore = stubImageStorage.presignedKeys.size
+
+        mockMvc
+            .perform(
+                post("/api/v1/users/me/profile-image")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"contentType":"image/png"}""")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
+            ).andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("UPLOAD-004"))
+        assertEquals(presignedBefore, stubImageStorage.presignedKeys.size)
     }
 
     @Test
@@ -289,7 +334,7 @@ class UserControllerIntegrationTest : IntegrationTestSupport() {
             .perform(
                 post("/api/v1/users/me/profile-image")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""{"contentType":" "}""")
+                    .content("""{"contentType":" ","contentLength":1024}""")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer ${token(userId, IdentityType.MEMBER)}"),
             ).andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.detail").value(ProfileImagePresignRequest.CONTENT_TYPE_REQUIRED_MESSAGE))

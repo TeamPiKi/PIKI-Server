@@ -58,4 +58,11 @@ class TournamentUserRepositoryImpl(
 
     override fun findCompletedByTournamentId(tournamentId: Long): List<TournamentUser> =
         tournamentUserJpaRepository.findCompletedByTournamentId(tournamentId)
+
+    override fun findCompletedByTournamentIds(tournamentIds: List<Long>): List<TournamentUser> =
+        if (tournamentIds.isEmpty()) {
+            emptyList()
+        } else {
+            tournamentUserJpaRepository.findCompletedByTournamentIdIn(tournamentIds)
+        }
 }

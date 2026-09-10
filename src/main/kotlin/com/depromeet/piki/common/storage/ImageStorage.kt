@@ -12,11 +12,10 @@ interface ImageStorage {
     ): String
 
     // 클라이언트가 서버를 거치지 않고 S3 에 직접 PUT 업로드할 수 있는 presigned URL 을 발급한다(이미지 등록 v2).
-    // 서버가 key·contentType 을 서명에 박으므로, 클라이언트는 그 key 에 그 content-type 으로만 올릴 수 있다(S3 가 강제).
-    // 서명은 로컬 계산이라 네트워크 호출이 없지만, SDK 예외는 ImageStorageException(502)으로 변환한다.
     fun presignUpload(
         key: String,
         contentType: String,
+        contentLength: Long,
         expiry: Duration,
     ): String
 

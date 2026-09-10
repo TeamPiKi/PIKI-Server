@@ -1,12 +1,14 @@
 package com.depromeet.piki.wishlist.controller
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
+import com.depromeet.piki.image.domain.UploadSize
 import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
 import com.depromeet.piki.product.service.ProductSnapshot
 import com.depromeet.piki.support.IntegrationTestSupport
-import com.depromeet.piki.support.StubImageStorage
 import com.depromeet.piki.support.StubImageSnapshotExtractor
+import com.depromeet.piki.support.StubImageStorage
+import com.depromeet.piki.support.presignImages
 import com.depromeet.piki.support.uuidToBytes
 import com.depromeet.piki.user.domain.IdentityType
 import org.awaitility.Awaitility.await
@@ -63,7 +65,9 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         try {
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png", "image/jpeg")))
+            val body =
+                objectMapper.writeValueAsString(presignImages(listOf("image/png", "image/jpeg"), contentLength = 2_048L))
+            val presignedBefore = stubImageStorage.presignedContentLengths.size
             val response =
                 mockMvc
                     .perform(
@@ -86,6 +90,92 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
             val jpgKey = uploads.path(1).path("imageKey").asText()
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.png$").matches(pngKey), "png imageKey 형식: $pngKey")
             assertTrue(Regex("^items/raw/[0-9a-f-]{36}\\.jpg$").matches(jpgKey), "jpg imageKey 형식: $jpgKey")
+            assertEquals(listOf(2_048L, 2_048L), stubImageStorage.presignedContentLengths.drop(presignedBefore))
+        } finally {
+            cleanup(userId)
+        }
+    }
+
+    @Test
+    fun `contentLength 가 5MB 를 넘으면 UPLOAD-003 으로 400 이고 서명이 발급되지 않는다`() {
+        val mockMvc = buildMockMvc()
+        val userId = UUID.randomUUID()
+        insertMember(userId)
+        val presignedBefore = stubImageStorage.presignedKeys.size
+        try {
+            val body =
+                objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = UploadSize.MAX_BYTES + 1))
+            mockMvc
+                .perform(
+                    post("/api/v1/wishlists/images/presigned")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
+                        .content(body),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("UPLOAD-003"))
+                .andExpect(jsonPath("$.detail").value("이미지는 5MB 까지 올릴 수 있어요."))
+            assertEquals(presignedBefore, stubImageStorage.presignedKeys.size)
+        } finally {
+            cleanup(userId)
+        }
+    }
+
+    @Test
+    fun `contentLength 가 0 이면 UPLOAD-004 로 400 이 반환된다`() {
+        val mockMvc = buildMockMvc()
+        val userId = UUID.randomUUID()
+        insertMember(userId)
+        try {
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = 0L))
+            mockMvc
+                .perform(
+                    post("/api/v1/wishlists/images/presigned")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
+                        .content(body),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("UPLOAD-004"))
+        } finally {
+            cleanup(userId)
+        }
+    }
+
+    @Test
+    fun `contentLength 를 생략하면 UPLOAD-004 로 400 이고 서명이 발급되지 않는다`() {
+        val mockMvc = buildMockMvc()
+        val userId = UUID.randomUUID()
+        insertMember(userId)
+        val presignedBefore = stubImageStorage.presignedKeys.size
+        try {
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png"), contentLength = null))
+            mockMvc
+                .perform(
+                    post("/api/v1/wishlists/images/presigned")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
+                        .content(body),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("UPLOAD-004"))
+            assertEquals(presignedBefore, stubImageStorage.presignedKeys.size)
+        } finally {
+            cleanup(userId)
+        }
+    }
+
+    @Test
+    fun `구버전 contentTypes 형식은 images 가 없는 요청이라 400 으로 거부된다`() {
+        val mockMvc = buildMockMvc()
+        val userId = UUID.randomUUID()
+        insertMember(userId)
+        try {
+            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png", "image/jpeg")))
+            mockMvc
+                .perform(
+                    post("/api/v1/wishlists/images/presigned")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
+                        .content(body),
+                ).andExpect(status().isBadRequest)
         } finally {
             cleanup(userId)
         }
@@ -97,7 +187,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         try {
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("application/pdf")))
+            val body = objectMapper.writeValueAsString(presignImages(listOf("application/pdf")))
             mockMvc
                 .perform(
                     post("/api/v1/wishlists/images/presigned")
@@ -118,7 +208,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         try {
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to List(6) { "image/png" }))
+            val body = objectMapper.writeValueAsString(presignImages(List(6) { "image/png" }))
             mockMvc
                 .perform(
                     post("/api/v1/wishlists/images/presigned")
@@ -139,7 +229,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertGuest(userId)
         try {
-            val body = objectMapper.writeValueAsString(mapOf("contentTypes" to listOf("image/png")))
+            val body = objectMapper.writeValueAsString(presignImages(listOf("image/png")))
             mockMvc
                 .perform(
                     post("/api/v1/wishlists/images/presigned")
@@ -329,7 +419,7 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         userId: UUID,
         contentTypes: List<String>,
     ): List<String> {
-        val body = objectMapper.writeValueAsString(mapOf("contentTypes" to contentTypes))
+        val body = objectMapper.writeValueAsString(presignImages(contentTypes))
         val response =
             mockMvc
                 .perform(

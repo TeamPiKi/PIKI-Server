@@ -85,12 +85,16 @@ sealed class TournamentDetail {
         }
     }
 
+    // 목록 순서가 계약이다(#1062) — 본인 → 주최자 → 그 외 참여자(입장 순). FE 가 다시 정렬하지 않는다.
     data class ParticipantDetail(
         val userId: UUID,
         val nickname: String,
         val profileImage: String,
         // 탈퇴 유저 여부. 익명화된 닉네임·프로필 대신 FE 가 이 플래그로 "유저 알수없음" 을 렌더한다.
         val isWithdrawn: Boolean,
+        // 이 토너먼트를 만든 주최자면 true. FE 가 프로필 우측 하단에 HostBadge 를 그린다(#1062).
+        // "요청자가 주최자냐" 를 뜻하는 Pending.isOwner 와 다르다 — 이쪽은 참가자 각각에 대한 사실이다.
+        val isHost: Boolean,
         val itemCount: Int,
     )
 }

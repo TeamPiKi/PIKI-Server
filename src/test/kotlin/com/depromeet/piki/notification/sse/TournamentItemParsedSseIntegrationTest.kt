@@ -72,7 +72,7 @@ class TournamentItemParsedSseIntegrationTest : IntegrationTestSupport() {
             assertTrue(outsiderEmitter.payloads().isEmpty())
         } finally {
             listOf(adder to adderEmitter, participant to participantEmitter, outsider to outsiderEmitter)
-                .forEach { (userId, emitter) -> registry.unregister(userId, emitter) }
+                .forEach { (userId, _) -> registry.removeAll(userId) }
         }
     }
 
@@ -91,7 +91,7 @@ class TournamentItemParsedSseIntegrationTest : IntegrationTestSupport() {
 
             assertEquals(ItemStatus.FAILED, emitter.payloads().single().status)
         } finally {
-            registry.unregister(participant, emitter)
+            registry.removeAll(participant)
         }
     }
 
@@ -108,7 +108,7 @@ class TournamentItemParsedSseIntegrationTest : IntegrationTestSupport() {
 
             assertTrue(emitter.payloads().isEmpty())
         } finally {
-            registry.unregister(someUser, emitter)
+            registry.removeAll(someUser)
         }
     }
 
@@ -139,8 +139,8 @@ class TournamentItemParsedSseIntegrationTest : IntegrationTestSupport() {
             assertEquals(tournamentB, payloadB.tournamentId)
             assertEquals(itemIdB, payloadB.tournamentItemId)
         } finally {
-            registry.unregister(userA, emitterA)
-            registry.unregister(userB, emitterB)
+            registry.removeAll(userA)
+            registry.removeAll(userB)
         }
     }
 
@@ -169,13 +169,13 @@ class TournamentItemParsedSseIntegrationTest : IntegrationTestSupport() {
             assertEquals(cardB, emitterB.payloads().single().tournamentItemId)
             assertTrue(emitterA.payloads().isEmpty())
         } finally {
-            registry.unregister(userA, emitterA)
-            registry.unregister(userB, emitterB)
+            registry.removeAll(userA)
+            registry.removeAll(userB)
         }
     }
 
     // 파싱 중(PROCESSING) 버전을 하나 시딩한다 — pin(snapshotId)과 브로드캐스트 키가 같은 버전을 가리켜야 라우팅이 맞아떨어진다.
-    private fun snapshotIdFor(itemId: Long): Long = itemSnapshotRepository.save(ItemSnapshot.pending(itemId).apply { markProcessing() }).getId()
+    private fun snapshotIdFor(itemId: Long): Long = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID()).apply { markProcessing() }).getId()
 }
 
 // send(SseEventBuilder) 를 가로채 실제 IO 없이 전송 내용을 기록한다. build() 가 내놓는 data 항목

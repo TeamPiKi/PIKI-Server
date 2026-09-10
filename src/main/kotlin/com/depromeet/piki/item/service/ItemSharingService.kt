@@ -9,6 +9,7 @@ import com.depromeet.piki.product.domain.CanonicalLink
 import com.depromeet.piki.product.domain.ProductLink
 import org.springframework.stereotype.Component
 import java.time.LocalDateTime
+import java.util.UUID
 
 // 공유 등록(#825 활성화)의 정책 계층 — 별칭으로 기존 상품을 알아보고(resolveExistingItem), 어느 버전에 붙을지
 // (resolveAttachment)를 정한다. 등록 영속화 빈(위시·토너먼트)이 자기 트랜잭션 안에서 호출한다.
@@ -43,16 +44,21 @@ class ItemSharingService(
     // 병합 경합 재시도: resolveExistingItem(비락)과 여기의 행 락 사이에 이 item 이 병합(merge)의 loser 로
     // soft delete 될 수 있다. 그 순간 별칭은 이미 승자 소속이므로, 원본 링크로 한 번 재해석해 승자에 붙는다 —
     // 등록 요청이 밀리초 창의 경합으로 500 으로 죽지 않게 한다. 재해석 후에도 없으면 코드 버그(500).
+    // requestedBy 는 등록하는 사람 — 새 PENDING 을 만들게 되면 그 버전의 요청자로 기록된다(#1051).
     fun resolveAttachment(
         itemId: Long,
         link: ProductLink,
+        requestedBy: UUID,
     ): SharedAttachment {
-        attachOrNull(itemId)?.let { return it }
+        attachOrNull(itemId, requestedBy)?.let { return it }
         val winner = resolveExistingItem(link) ?: error("공유 대상 item $itemId 이 없다")
-        return attachOrNull(winner.getId()) ?: error("공유 대상 item ${winner.getId()} 이 없다")
+        return attachOrNull(winner.getId(), requestedBy) ?: error("공유 대상 item ${winner.getId()} 이 없다")
     }
 
-    private fun attachOrNull(itemId: Long): SharedAttachment? {
+    private fun attachOrNull(
+        itemId: Long,
+        requestedBy: UUID,
+    ): SharedAttachment? {
         // 잠근 item 을 결과에 담아 전파한다 — 병합 재시도 경로에선 입력 itemId(loser)와 실제로 붙은
         // item(winner)이 다르므로, 호출부의 중복 검사·응답 구성은 반드시 이 item 을 기준으로 해야 한다.
         val item = itemRepository.findByIdForUpdate(itemId) ?: return null
@@ -65,7 +71,7 @@ class ItemSharingService(
         }
         return SharedAttachment(
             item = item,
-            snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(itemId)),
+            snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy)),
             reused = false,
             refreshNeeded = false,
         )

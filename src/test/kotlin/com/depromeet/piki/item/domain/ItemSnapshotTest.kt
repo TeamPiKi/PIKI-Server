@@ -10,6 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.util.UUID
 
 class ItemSnapshotTest {
     @Test
@@ -197,14 +198,14 @@ class ItemSnapshotTest {
         base.markExtracted(ProductSnapshot(name = "나이키", price = 99_000, imageUrl = "https://img.example.com/a.png", currency = "KRW"))
         val editor = java.util.UUID.randomUUID()
 
-        val manual = ItemSnapshot.manual(base = base, name = null, price = 79_000, imageUrl = null, currency = null, editedBy = editor)
+        val manual = ItemSnapshot.manual(base = base, name = null, price = 79_000, imageUrl = null, currency = null, createdBy = editor)
 
         assertEquals(ItemStatus.READY, manual.status)
         assertEquals("나이키", manual.name)
         assertEquals(79_000, manual.price)
         assertEquals("https://img.example.com/a.png", manual.imageUrl)
         assertEquals(ItemSnapshotSource.MANUAL, manual.source)
-        assertEquals(editor, manual.editedBy)
+        assertEquals(editor, manual.createdBy)
         assertNotNull(manual.extractedAt)
         // 기계 버전 불변 — 이력 보존의 핵심.
         assertEquals(99_000, base.price)
@@ -226,7 +227,7 @@ class ItemSnapshotTest {
                 price = 25_000,
                 imageUrl = null,
                 currency = "KRW",
-                editedBy = java.util.UUID.randomUUID(),
+                createdBy = java.util.UUID.randomUUID(),
             )
 
         assertEquals(ItemStatus.READY, manual.status)
@@ -241,7 +242,7 @@ class ItemSnapshotTest {
         val base = ItemSnapshot(itemId = 1L)
         base.markExtracted(ProductSnapshot(imageUrl = "https://img.example.com/a.png"))
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "몬치치", price = null, imageUrl = null, currency = null, editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "몬치치", price = null, imageUrl = null, currency = null, createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -249,7 +250,7 @@ class ItemSnapshotTest {
     fun `manual 은 상태 제한이 없다 - PENDING·PROCESSING·FAILED base 로도 새 버전을 만든다`() {
         val editor = java.util.UUID.randomUUID()
         listOf(
-            ItemSnapshot.pending(itemId = 1L),
+            ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID()),
             ItemSnapshot(itemId = 1L),
             ItemSnapshot(itemId = 1L).apply { markFailed() },
         ).forEach { base ->
@@ -259,7 +260,7 @@ class ItemSnapshotTest {
                 price = 5_000,
                 imageUrl = "https://img.example.com/m.png",
                 currency = "KRW",
-                editedBy = editor,
+                createdBy = editor,
             )
             assertEquals(ItemStatus.READY, manual.status)
             assertEquals(ItemSnapshotSource.MANUAL, manual.source)
@@ -270,7 +271,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 name 이 비면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = null, price = 1_000, imageUrl = "https://img.example.com/a.png", currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = null, price = 1_000, imageUrl = "https://img.example.com/a.png", currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -278,7 +279,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 price 가 없으면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "수기", price = null, imageUrl = "https://img.example.com/a.png", currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "수기", price = null, imageUrl = "https://img.example.com/a.png", currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -286,7 +287,7 @@ class ItemSnapshotTest {
     fun `manual 병합 후에도 imageUrl 이 없으면 ItemException(400)`() {
         val base = ItemSnapshot(itemId = 1L).apply { markFailed() }
         assertFailsWith<ItemException> {
-            ItemSnapshot.manual(base = base, name = "수기", price = 5_000, imageUrl = null, currency = "KRW", editedBy = java.util.UUID.randomUUID())
+            ItemSnapshot.manual(base = base, name = "수기", price = 5_000, imageUrl = null, currency = "KRW", createdBy = java.util.UUID.randomUUID())
         }
     }
 
@@ -294,7 +295,7 @@ class ItemSnapshotTest {
 
     @Test
     fun `pending 팩토리는 PENDING 스냅샷을 만들고 isReady 는 false 다`() {
-        val snapshot = ItemSnapshot.pending(itemId = 1L)
+        val snapshot = ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID())
         assertEquals(ItemStatus.PENDING, snapshot.status)
         assertFalse(snapshot.isReady())
     }
@@ -302,8 +303,8 @@ class ItemSnapshotTest {
     @Test
     fun `isInProgress 는 PENDING·PROCESSING 에서 true, READY·FAILED 에서 false 다`() {
         // 수동 새로고침(5단계) 멱등 가드용 — 이미 진행 중이면 새 추출 버전을 만들지 않는다.
-        assertTrue(ItemSnapshot.pending(itemId = 1L).isInProgress())
-        assertTrue(ItemSnapshot.pending(itemId = 1L).apply { markProcessing() }.isInProgress())
+        assertTrue(ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID()).isInProgress())
+        assertTrue(ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID()).apply { markProcessing() }.isInProgress())
         assertFalse(
             ItemSnapshot(itemId = 1L)
                 .apply { markExtracted(ProductSnapshot(name = "x", price = 1_000, imageUrl = "https://img.example.com/a.png")) }
@@ -314,7 +315,7 @@ class ItemSnapshotTest {
 
     @Test
     fun `PENDING 스냅샷을 markProcessing 하면 PROCESSING 이 된다`() {
-        val snapshot = ItemSnapshot.pending(itemId = 1L)
+        val snapshot = ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID())
         snapshot.markProcessing()
         assertEquals(ItemStatus.PROCESSING, snapshot.status)
     }
@@ -322,7 +323,7 @@ class ItemSnapshotTest {
     @Test
     fun `PENDING 이 아닌 스냅샷을 markProcessing 하면 IllegalStateException`() {
         // 이미 claim 된(PROCESSING)·완료(READY)·실패(FAILED)는 다시 claim 할 수 없다 — 디스패처 중복 집기 방어.
-        assertFailsWith<IllegalStateException> { ItemSnapshot.pending(1L).apply { markProcessing() }.markProcessing() }
+        assertFailsWith<IllegalStateException> { ItemSnapshot.pending(1L, requestedBy = UUID.randomUUID()).apply { markProcessing() }.markProcessing() }
         assertFailsWith<IllegalStateException> {
             ItemSnapshot(itemId = 1L)
                 .apply { markExtracted(ProductSnapshot(name = "x", price = 1_000, imageUrl = "https://img.example.com/a.png")) }
@@ -337,7 +338,7 @@ class ItemSnapshotTest {
     fun `markProcessing 은 상태만 옮기고 attemptCount 는 건드리지 않는다`() {
         // 집기(claim)는 "워커에게 넘긴다"는 지목일 뿐이다. 시도 소모는 워커가 실행에 진입할 때(소유권 획득) 일어나므로,
         // 집혔지만 제출이 거부돼 실행이 0회인 행이 예산을 잃지 않는다.
-        val snapshot = ItemSnapshot.pending(itemId = 1L)
+        val snapshot = ItemSnapshot.pending(itemId = 1L, requestedBy = UUID.randomUUID())
         assertEquals(0, snapshot.attemptCount)
         snapshot.markProcessing()
         assertEquals(ItemStatus.PROCESSING, snapshot.status)
@@ -347,10 +348,10 @@ class ItemSnapshotTest {
     @Test
     fun `expire 는 PENDING·PROCESSING 을 FAILED 로 종결한다`() {
         // 마감(created_at 기준 상한)은 attempt 예산·박동과 무관한 벽시계라, 아직 집히지 않은 PENDING 도 대상이다.
-        assertEquals(ItemStatus.FAILED, ItemSnapshot.pending(1L).apply { expire() }.status)
+        assertEquals(ItemStatus.FAILED, ItemSnapshot.pending(1L, requestedBy = UUID.randomUUID()).apply { expire() }.status)
         assertEquals(
             ItemStatus.FAILED,
-            ItemSnapshot.pending(1L).apply {
+            ItemSnapshot.pending(1L, requestedBy = UUID.randomUUID()).apply {
                 markProcessing()
                 expire()
             }.status,
@@ -380,7 +381,7 @@ class ItemSnapshotTest {
     @Test
     fun `PROCESSING 이 아닌 스냅샷을 release 하면 IllegalStateException`() {
         // 반납은 "실행 중이던 내 소유권을 놓는다"는 뜻이라 PROCESSING 에서만 성립한다.
-        assertFailsWith<IllegalStateException> { ItemSnapshot.pending(1L).release() }
+        assertFailsWith<IllegalStateException> { ItemSnapshot.pending(1L, requestedBy = UUID.randomUUID()).release() }
         assertFailsWith<IllegalStateException> { ItemSnapshot(itemId = 1L).apply { markFailed() }.release() }
     }
 }

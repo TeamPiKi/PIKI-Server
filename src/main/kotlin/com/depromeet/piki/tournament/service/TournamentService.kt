@@ -4,6 +4,7 @@ import com.depromeet.piki.item.domain.ItemSnapshot
 import com.depromeet.piki.item.domain.ItemStatus
 import com.depromeet.piki.item.repository.ItemRepository
 import com.depromeet.piki.item.repository.ItemSnapshotRepository
+import com.depromeet.piki.item.service.DisplayCard
 import com.depromeet.piki.item.service.ItemDisplayService
 import com.depromeet.piki.tournament.domain.RoundBracket
 import com.depromeet.piki.tournament.domain.Tournament
@@ -38,8 +39,10 @@ import com.depromeet.piki.tournament.service.dto.TournamentItemDetail
 import com.depromeet.piki.tournament.service.dto.StartResult
 import com.depromeet.piki.tournament.service.dto.TournamentStartResult
 import com.depromeet.piki.tournament.service.dto.TournamentSummary
+import com.depromeet.piki.user.domain.IdentityType
 import com.depromeet.piki.user.domain.UserException
 import com.depromeet.piki.user.repository.UserRepository
+import com.depromeet.piki.user.service.DefaultProfileImages
 import com.depromeet.piki.wishlist.repository.WishRepository
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
@@ -57,6 +60,7 @@ class TournamentService(
     private val itemSnapshotRepository: ItemSnapshotRepository,
     private val itemDisplayService: ItemDisplayService,
     private val wishRepository: WishRepository,
+    private val defaultProfileImages: DefaultProfileImages,
     private val eventPublisher: ApplicationEventPublisher,
 ) {
     // 탈퇴(tombstone) 계정의 토너먼트 생성을 막는다. anonymize 는 닉네임·프로필만 비우고 행은 남기므로,
@@ -192,19 +196,19 @@ class TournamentService(
             .map { it.getId() }
             .toSet()
         if (command.itemIds.any { it !in foundItemIds }) throw TournamentException.notFoundItems()
-        // 출전 시점에 위시의 활성 snapshot 을 tournament_item 에 고정한다 — 이후 위시 갱신과 무관하게 그 버전을 본다.
-        // item 정체성은 snapshot.itemId 단일 출처다 — wish 의 활성 snapshot 을 끌어와 itemId→snapshot 으로 맵핑한다.
+        // 출전 시점에 위시가 기다리는 행을 tournament_item 에 고정한다 — 이후 위시 갱신과 무관하게 그 버전을 본다.
+        // 키는 위시의 상품이다(행의 상품이 아니라) — 두 참조가 어긋난 드문 행이 있어도 키 공간이 하나라 아래 커버리지 검사가 계약(409)으로 거른다.
+        val wishes = wishRepository.findByItemIdsAndUserId(command.itemIds, userId)
+        val snapshotById = itemSnapshotRepository.findByIds(wishes.map { it.waitingSnapshotId }).associateBy { it.getId() }
         val activeSnapshotByItemId =
-            itemSnapshotRepository
-                .findByIds(wishRepository.findByItemIdsAndUserId(command.itemIds, userId).map { it.snapshotId })
-                .associateBy { it.itemId }
-        if (activeSnapshotByItemId.size != command.itemIds.size) throw TournamentException.itemNotReady()
+            wishes.mapNotNull { wish -> snapshotById[wish.waitingSnapshotId]?.let { wish.itemId to it } }.toMap()
+        if (!activeSnapshotByItemId.keys.containsAll(command.itemIds)) throw TournamentException.itemNotReady()
         // 판정은 포인터가 아니라 카드에 뜨는 값으로 한다 — 남이 같은 링크를 담아 추출이 성공하면 내 포인터가
         // 미완성·실패로 남아 있어도 카드엔 그 성공값이 뜬다(displayOf). 포인터로 판정하면 화면엔 값이 다 있는데
         // "채운 뒤 담아 주세요" 가 나가고, 같은 아이템으로 시작은 되는 어긋남이 생긴다.
         // 박제는 포인터 그대로다 — 겨루는 값 확정은 start 의 몫이고(#858), 대기실 표시도 파생으로 움직인다.
         requireEntryEligible(
-            displayOf(activeSnapshotByItemId.values),
+            itemDisplayService.resolveDisplay(activeSnapshotByItemId.values.map { DisplayCard.waitingOn(it, owner = userId) }).values,
             TournamentException::itemIncomplete,
             TournamentException::itemNotReady,
         )
@@ -263,10 +267,11 @@ class TournamentService(
         // start = "겨루는 값 확정" 순간(#857). 대기실까지는 표시값이 파생(최신 기계 READY 우선)으로 움직이므로,
         // 그 파생 결과를 여기서 포인터에 박제(repin)해 "겨룬 값 = 진행·완료 화면 값 = 히스토리 값" 을 고정한다.
         // 시작 후 화면·히스토리는 파생 없이 포인터를 그대로 읽는다(당시를 보는 것이 확정).
-        val displayById = itemDisplayService.resolveDisplay(snapshotById.values)
+        val cardOf = { tournamentItem: TournamentItem -> DisplayCard.waitingOn(tournamentItem.requireSnapshot(snapshotById), owner = tournamentItem.userId) }
+        val displayByCard = itemDisplayService.resolveDisplay(tournamentItems.map(cardOf))
         val pinnedByTournamentItemId =
             tournamentItems.associate { tournamentItem ->
-                val display = displayById[tournamentItem.snapshotId] ?: tournamentItem.requireSnapshot(snapshotById)
+                val display = displayByCard.getValue(cardOf(tournamentItem))
                 if (display.getId() != tournamentItem.snapshotId) tournamentItem.repinSnapshot(display.getId())
                 tournamentItem.getId() to display
             }
@@ -379,13 +384,6 @@ class TournamentService(
                 // 파생 결과를 박제하므로 진행·완료 분기는 포인터 그대로 읽는다.
                 val snapshotById = displayedSnapshotsOf(tournamentItems)
                 val tournamentUsers = tournamentUserRepository.findByTournamentId(tournamentId)
-                val userById = userRepository
-                    .findByIds(
-                        tournamentUsers
-                            .map { it.userId }
-                            .toSet(),
-                    )
-                    .associateBy { it.id }
                 val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
                 TournamentDetail.Pending(
                     tournamentId = tournament.getId(),
@@ -393,19 +391,12 @@ class TournamentService(
                     inviteCode = tournament.inviteCode,
                     inviteExpiresAt = tournament.inviteExpiresAt,
                     items = tournamentItems.map { toItemDetail(it, snapshotById) },
-                    participants =
-                        tournamentUsers.mapNotNull { tu ->
-                            userById[tu.userId]?.let { user ->
-                                TournamentDetail.ParticipantDetail(
-                                    userId = user.id,
-                                    // 토너먼트 닉네임 우선, 레거시(NULL)면 프로필 닉네임 폴백(#1018)
-                                    nickname = tu.nickname ?: user.nickname,
-                                    profileImage = user.profileImage,
-                                    isWithdrawn = !user.isActive(),
-                                    itemCount = itemCountByUserId[tu.userId] ?: 0,
-                                )
-                            }
-                        },
+                    participants = toParticipantDetails(
+                        tournamentUsers,
+                        tournament.ownerTournamentUserId,
+                        userId,
+                        itemCountByUserId,
+                    ),
                     isOwner = isOwner,
                     isRoot = isRoot,
                     sourceTournamentId = tournament.sourceTournamentId,
@@ -429,7 +420,7 @@ class TournamentService(
                 // ROOT 가 IN_PROGRESS 인데 멤버 본인의 히스토리가 없으면, CLONE 을 아직 시작하지 않은 대기 상태다.
                 // ROOT(sourceTournamentId 없음)면 pending+ownerStarted 로 "주최자가 시작했습니다, 지금 시작하세요" UI 를 분기한다.
                 if (!isOwner && histories.isEmpty()) {
-                    tournament.sourceTournamentId ?: return buildMemberPendingOnRoot(tournament)
+                    tournament.sourceTournamentId ?: return buildMemberPendingOnRoot(tournament, userId)
                 }
                 // 히스토리는 currentRound ASC, id ASC 정렬이라 lastOrNull()은 라운드가 바뀌면 틀림 — ID 최대값이 가장 최근 매치
                 val lastHistory = histories
@@ -488,7 +479,7 @@ class TournamentService(
                     val myClone = clones.firstOrNull { ownerTUById[it.ownerTournamentUserId]?.userId == userId }
                     // 옵션 A: 아직 본인 CLONE 을 시작하지 않은 참여자는 ROOT 가 COMPLETED 여도 403 대신
                     // 시작 가능 상태(pending+ownerStarted)를 받아 본인 CLONE 을 만들어 진행할 수 있다.
-                        ?: return buildMemberPendingOnRoot(tournament)
+                        ?: return buildMemberPendingOnRoot(tournament, userId)
                     val myCloneOwnerTU = ownerTUById.getValue(myClone.ownerTournamentUserId)
                     if (!myCloneOwnerTU.isCompleted()) throw TournamentException.forbiddenTournament()
                     val cloneHistories = tournamentRepository.findHistoriesByTournamentIdAndTournamentUserId(
@@ -501,23 +492,30 @@ class TournamentService(
         }
     }
 
-    // 아직 본인 CLONE 을 시작하지 않은 멤버에게 내려주는 "시작 가능" 대기 응답.
-    // ROOT 가 IN_PROGRESS·COMPLETED 어느 쪽이든, 멤버는 ROOT 아이템·참여자를 보며 본인 플레이를 시작할 수 있다.
-    private fun buildMemberPendingOnRoot(root: Tournament): TournamentDetail.Pending {
-        val tournamentItems = tournamentItemRepository.findAllByTournamentId(root.getId())
-        val snapshotById = snapshotsOf(tournamentItems)
-        val tournamentUsers = tournamentUserRepository.findByTournamentId(root.getId())
+    // 참가자 목록 조립 — 주최자 배지(isHost)와 노출 순서를 한 자리에서 책임진다(#1062).
+    // 대기실과 후보 담기 배너가 같은 목록을 쓰므로, 두 진입점(getTournamentDetail·buildMemberPendingOnRoot)이 이 함수를 공유한다.
+    //
+    // 순서는 본인 → 주최자 → 그 외 참여자(입장 순)로 서버가 확정해 내린다. 클라가 정렬하면 화면마다 규칙이 갈리고,
+    // "본인" 판정에 필요한 요청자 신원이 응답에는 없어 클라가 userId 를 비교해야 한다.
+    // 내가 주최자면 두 조건을 모두 만족해 자연히 맨 앞이다.
+    // 입장 순은 TU 의 auto-increment id — 참여 시각 컬럼이 따로 없고, 행 생성 순서가 곧 입장 순서다.
+    private fun toParticipantDetails(
+        tournamentUsers: List<TournamentUser>,
+        ownerTournamentUserId: Long,
+        viewerId: UUID,
+        itemCountByUserId: Map<UUID, Int>,
+    ): List<TournamentDetail.ParticipantDetail> {
         val userById = userRepository
             .findByIds(tournamentUsers.map { it.userId }.toSet())
             .associateBy { it.id }
-        val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
-        return TournamentDetail.Pending(
-            tournamentId = root.getId(),
-            name = root.name,
-            inviteCode = root.inviteCode,
-            inviteExpiresAt = root.inviteExpiresAt,
-            items = tournamentItems.map { toItemDetail(it, snapshotById) },
-            participants = tournamentUsers.mapNotNull { tu ->
+        return tournamentUsers
+            .sortedWith(
+                compareBy(
+                    { it.userId != viewerId },
+                    { it.getId() != ownerTournamentUserId },
+                    { it.getId() },
+                ),
+            ).mapNotNull { tu ->
                 userById[tu.userId]?.let { user ->
                     TournamentDetail.ParticipantDetail(
                         userId = user.id,
@@ -525,10 +523,35 @@ class TournamentService(
                         nickname = tu.nickname ?: user.nickname,
                         profileImage = user.profileImage,
                         isWithdrawn = !user.isActive(),
+                        isHost = tu.getId() == ownerTournamentUserId,
                         itemCount = itemCountByUserId[tu.userId] ?: 0,
                     )
                 }
-            },
+            }
+    }
+
+    // 아직 본인 CLONE 을 시작하지 않은 멤버에게 내려주는 "시작 가능" 대기 응답.
+    // ROOT 가 IN_PROGRESS·COMPLETED 어느 쪽이든, 멤버는 ROOT 아이템·참여자를 보며 본인 플레이를 시작할 수 있다.
+    private fun buildMemberPendingOnRoot(
+        root: Tournament,
+        viewerId: UUID,
+    ): TournamentDetail.Pending {
+        val tournamentItems = tournamentItemRepository.findAllByTournamentId(root.getId())
+        val snapshotById = snapshotsOf(tournamentItems)
+        val tournamentUsers = tournamentUserRepository.findByTournamentId(root.getId())
+        val itemCountByUserId = tournamentItems.groupingBy { it.userId }.eachCount()
+        return TournamentDetail.Pending(
+            tournamentId = root.getId(),
+            name = root.name,
+            inviteCode = root.inviteCode,
+            inviteExpiresAt = root.inviteExpiresAt,
+            items = tournamentItems.map { toItemDetail(it, snapshotById) },
+            participants = toParticipantDetails(
+                tournamentUsers,
+                root.ownerTournamentUserId,
+                viewerId,
+                itemCountByUserId,
+            ),
             isOwner = false,
             isRoot = root.isRoot(),
             sourceTournamentId = null,
@@ -555,7 +578,12 @@ class TournamentService(
         // 표시값: 대기실(PENDING)은 파생(#857), 시작 후는 start 가 박제한 포인터 그대로(겨룬 값 고정).
         // sourceUrl(상품 링크)은 그 snapshot 의 item(정체성)에서 읽는다.
         val pointer = tournamentItem.requireSnapshot(snapshotsOf(listOf(tournamentItem)))
-        val snapshot = if (tournament.isPending()) itemDisplayService.resolveDisplay(pointer) else pointer
+        val snapshot =
+            if (tournament.isPending()) {
+                itemDisplayService.resolveDisplay(DisplayCard.waitingOn(pointer, owner = tournamentItem.userId))
+            } else {
+                pointer
+            }
         val item = itemRepository.findById(snapshot.itemId)
             ?: throw TournamentException.notFoundTournamentItem()
         // 이 상품이 요청자 본인의 위시에 담겨 있으면 그 위시의 개인 메모를 함께 내린다(#906). 조회를 요청자
@@ -588,28 +616,34 @@ class TournamentService(
         // owner(내가 만든 ROOT·내 CLONE)는 전역 status 그대로, 참여자(클론 없는 ROOT)는 완료돼도 나에겐 IN_PROGRESS 로 캡한다.
         // ownedOnly=true(홈)는 참여 갈래를 꺼 "내가 owner 인 것" 만 노출한다. status 와는 AND 로 걸린다.
         // playType 은 파생 상태라 앱에서 거르면 limit 이 먼저 걸려 요구한 개수보다 적게 나온다 (쿼리에서 함께 판정).
-        // 참가자·프로필은 남은 토너먼트에 대해서만 읽는다 (홈 카드 limit=3 이 내 전체 이력을 선로드하지 않게).
+        // 참가자·썸네일은 남은 토너먼트에 대해서만 읽는다 (홈 카드 limit=3 이 내 전체 이력을 선로드하지 않게).
         val limited = tournamentRepository.findVisibleByUserId(userId, statuses, playType, ownedOnly, limit)
         if (limited.isEmpty()) return emptyList()
 
-        val tournamentUsers = tournamentUserRepository.findByTournamentIds(limited.map { it.getId() })
-        val userIds =
-            tournamentUsers
-                .map { it.userId }
-                .toSet()
-        val profileImageByUserId =
-            userRepository
-                .findByIds(userIds)
-                .associate { it.id to it.profileImage }
-        val profileImagesByTournamentId =
-            tournamentUsers
-                .groupBy { it.tournamentId }
-                .mapValues { (_, users) -> users.mapNotNull { profileImageByUserId[it.userId] } }
-
-        // 썸네일도 남은 토너먼트에 대해서만 조회한다 (잘릴 것의 아이템은 안 읽음).
-        // CLONE 은 자기 tournament_item 이 없고 sourceTournamentId(ROOT)의 아이템을 쓰므로, ROOT id 로 조회한 뒤 CLONE 에 매핑한다.
+        // 썸네일·인원수 모두 ROOT 기준이다. CLONE 은 자기 tournament_item 도 참여자도 없고 ROOT 의 것을 이어받으므로,
+        // 카드가 CLONE 이어도 "그 토너먼트에 몇 명이 담고 몇 명이 플레이했나" 는 ROOT 를 세야 한다.
         val rootIdByTournamentId = limited.associate { it.getId() to (it.sourceTournamentId ?: it.getId()) }
-        val thumbnailsByRootId = thumbnailUrlsByTournamentId(rootIdByTournamentId.values.distinct())
+        val rootIds = rootIdByTournamentId.values.distinct()
+        val thumbnailsByRootId = thumbnailUrlsByTournamentId(rootIds)
+
+        // 카드 tournamentId 와 ROOT id 를 한 번에 읽어 카드가 ROOT 일 때 같은 조회를 두 번 하지 않는다.
+        val tournamentUsers = tournamentUserRepository
+            .findByTournamentIds((limited.map { it.getId() } + rootIds).distinct())
+        // "함께 담은 N" — 참여자 프로필을 겹쳐 보여주던 자리를 숫자로 바꾼 것이라 모집단도 그대로 참여자다(#1062).
+        val participantCountByRootId = tournamentUsers
+            .filter { it.tournamentId in rootIds }
+            .groupingBy { it.tournamentId }
+            .eachCount()
+        val playedCountByRootId = playedCountByRootId(rootIds)
+        // DEPRECATED — 카드가 인원수로 바뀌어 이 배열은 더 이상 쓰이지 않는다(#1062). 앱이 전환해 배포될 때까지만
+        // 함께 내린다. 구버전 앱이 non-optional 로 읽고 있으면 필드가 사라지는 순간 목록 화면이 통째로 안 뜬다.
+        // 값·모집단은 옛 동작 그대로 둔다(카드 자신의 tournamentId 기준) — 전환기 호환이 목적이라 여기서 의미를 바꾸지 않는다.
+        val profileImageByUserId = userRepository
+            .findByIds(tournamentUsers.map { it.userId }.toSet())
+            .associate { it.id to it.profileImage }
+        val profileImagesByTournamentId = tournamentUsers
+            .groupBy { it.tournamentId }
+            .mapValues { (_, users) -> users.mapNotNull { profileImageByUserId[it.userId] } }
 
         // 내 tournament_user id 를 토너먼트별로 — effectiveStatus 계산에서 "내가 이 방의 owner 냐" 판정에 쓴다.
         val myTournamentUserIdByTournamentId =
@@ -628,12 +662,40 @@ class TournamentService(
                     tournament.status == TournamentStatus.COMPLETED -> TournamentStatus.IN_PROGRESS
                     else -> tournament.status
                 }
+            val rootId = rootIdByTournamentId.getValue(tournament.getId())
             TournamentSummary.of(
                 tournament = tournament,
                 participantProfileImages = profileImagesByTournamentId[tournament.getId()] ?: emptyList(),
-                thumbnailUrls = thumbnailsByRootId[rootIdByTournamentId.getValue(tournament.getId())] ?: emptyList(),
+                participantCount = participantCountByRootId[rootId] ?: 0,
+                playedCount = playedCountByRootId[rootId] ?: 0,
+                thumbnailUrls = thumbnailsByRootId[rootId] ?: emptyList(),
                 effectiveStatus = effectiveStatus,
             )
+        }
+    }
+
+    // ROOT 별 "플레이한 N" — 플레이를 끝까지 마친 고유 사용자 수(#1062). 시작만 하고 이탈한 사람은 빠진다.
+    // 완주 판정은 그룹 결과와 같은 기준이다: ROOT 참여자는 completedAt, CLONE 은 그 토너먼트가 COMPLETED 인지.
+    // userId 로 dedup 하는 이유는 주최자가 ROOT 참여 행과 본인 CLONE 을 둘 다 가질 수 있어서다 — 행을 세면 한 명이 둘로 잡힌다.
+    // 배치 조회 3회로 끝내 카드 수만큼 클론을 훑는 N+1 을 만들지 않는다.
+    private fun playedCountByRootId(rootIds: List<Long>): Map<Long, Int> {
+        if (rootIds.isEmpty()) return emptyMap()
+        val completedRootTUsByRootId = tournamentUserRepository
+            .findCompletedByTournamentIds(rootIds)
+            .groupBy { it.tournamentId }
+        val completedClonesByRootId = tournamentRepository
+            .findCompletedBySourceTournamentIds(rootIds)
+            .groupBy { it.sourceTournamentId }
+        val cloneOwnerTUById = tournamentUserRepository
+            .findByIds(completedClonesByRootId.values.flatten().map { it.ownerTournamentUserId }.toSet())
+            .associateBy { it.getId() }
+        return rootIds.associateWith { rootId ->
+            buildSet {
+                completedRootTUsByRootId[rootId].orEmpty().forEach { add(it.userId) }
+                completedClonesByRootId[rootId].orEmpty().forEach { clone ->
+                    cloneOwnerTUById[clone.ownerTournamentUserId]?.let { add(it.userId) }
+                }
+            }.size
         }
     }
 
@@ -1126,10 +1188,14 @@ class TournamentService(
         // 값이 NULL(레거시)이면 다음 후보로, 최종은 프로필 닉으로 폴백한다.
         // findByTournamentId(활성 TU)는 아직 완료 안 한 멤버 루트 TU 를 커버하고, completedRootTUs(deletedAt 무관)는
         // 삭제한 주최자의 완료 ROOT TU 를 커버한다 — 둘을 합쳐, 삭제된 완료 ROOT 가 스냅샷 닉 대신 프로필로 폴백하지 않게 한다.
-        val rootNicknameByUserId =
-            (tournamentUserRepository.findByTournamentId(tournamentId) + completedRootTUs)
-                .associate { it.userId to it.nickname }
+        val rootTUs = tournamentUserRepository.findByTournamentId(tournamentId) + completedRootTUs
+        val rootNicknameByUserId = rootTUs.associate { it.userId to it.nickname }
         val nicknameByTuId = cloneOwnerTUById.values.associate { it.getId() to it.nickname }
+        // 주최자 배지(#1062). play.tuId 로 판정하지 않고 userId 로 푸는 이유는, 주최자가 ROOT 와 자기 CLONE 을 둘 다
+        // 완주했을 때 dedup 이 어느 play 를 남기든 같은 결과가 나와야 해서다 — CLONE play 의 tuId 는 ROOT 오너 TU 가 아니다.
+        // 주최자 TU 를 못 찾으면(삭제된 주최자가 완주도 안 한 경우) 아무에게도 배지를 안 단다. 배지는 부가 표시라
+        // 500 으로 결과 전체를 막는 것보다 조용히 빠지는 편이 낫다.
+        val ownerUserId = rootTUs.firstOrNull { it.getId() == tournament.ownerTournamentUserId }?.userId
 
         // "선택자" = 해당 아이템을 자신의 1위(우승)로 고른 참여자
         // itemId 단위로 집계하고 정렬 후 그룹 rank 를 부여한다.
@@ -1168,6 +1234,7 @@ class TournamentService(
                 nickname = rootNicknameByUserId[play.userUUID] ?: nicknameByTuId[play.tuId] ?: user.nickname,
                 profileImage = user.profileImage,
                 isWithdrawn = !user.isActive(),
+                isHost = user.id == ownerUserId,
             )
 
             for ((tournamentItemId, rank) in ranked) {
@@ -1211,7 +1278,14 @@ class TournamentService(
                     chosenBy = winnersByItemId[ref.itemId] ?: emptyList(),
                 )
             }
-        return GroupResult(items = items)
+        val result = GroupResult(items = items)
+        // 게스트에게는 다른 참여자의 신원을 지워 내린다 — 클라가 정상 값을 받아 가리는 게 아니라 서버가
+        // 애초에 물음표 값을 내려야, 응답을 직접 뜯어봐도 남이 누구인지 알 수 없다.
+        // 판정을 `== MEMBER` 로 두어(부정형이 아니라) identity 종류가 늘어도 기본이 "가린다" 쪽에 남게 한다.
+        // users 행 없는 인증 유저(rejectIfDeleted 가 허용하는 레거시 창)도 회원임을 증명하지 못하므로 마스킹 대상이다.
+        val requesterIsMember = userById[userId]?.identityType == IdentityType.MEMBER
+        if (requesterIsMember) return result
+        return result.maskedFor(userId, defaultProfileImages.masked())
     }
 
     @Transactional
@@ -1356,12 +1430,6 @@ class TournamentService(
         if (snapshots.any { !it.isReady() }) throw notReady()
     }
 
-    /** 포인터 묶음을 카드에 뜨는 값으로 바꾼다. 파생 대상이 없는 포인터는 자기 자신이 표시값이다. */
-    private fun displayOf(pointers: Collection<ItemSnapshot>): Collection<ItemSnapshot> {
-        val displayById = itemDisplayService.resolveDisplay(pointers)
-        return pointers.map { displayById[it.getId()] ?: it }
-    }
-
     // tournament_item 들이 고정한 snapshot 을 한 번에 조회해 id→snapshot 맵으로. 표시값 조회의 메모리 조인 재료다.
     private fun snapshotsOf(tournamentItems: Collection<TournamentItem>): Map<Long, ItemSnapshot> =
         itemSnapshotRepository
@@ -1372,8 +1440,10 @@ class TournamentService(
     // requireSnapshot(포인터 id 조회)을 쓰는 기존 조립 코드가 무수정으로 표시 버전을 읽게 된다.
     private fun displayedSnapshotsOf(tournamentItems: Collection<TournamentItem>): Map<Long, ItemSnapshot> {
         val pointers = snapshotsOf(tournamentItems)
-        val displayById = itemDisplayService.resolveDisplay(pointers.values)
-        return pointers.mapValues { (pointerId, pointer) -> displayById[pointerId] ?: pointer }
+        // 카드 주인은 출전시킨 사람 — 그 사람의 맥락(수기)과 카드가 기다리는 행(pin)의 진행 중만 그 카드에 보인다.
+        val cardOf = { tournamentItem: TournamentItem -> DisplayCard.waitingOn(tournamentItem.requireSnapshot(pointers), owner = tournamentItem.userId) }
+        val displayByCard = itemDisplayService.resolveDisplay(tournamentItems.map(cardOf))
+        return tournamentItems.associate { it.snapshotId to displayByCard.getValue(cardOf(it)) }
     }
 
     // 고정 snapshot 은 출전 시점에 반드시 박힌다. 없으면 영속화 경로가 깨진 코드 버그다(전환 후 신규 출전부터 보장).

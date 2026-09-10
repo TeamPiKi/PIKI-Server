@@ -102,18 +102,19 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         // editedByMe 로 구분해 주고, 편집자 식별자(UUID)는 개인정보라 응답에 싣지 않는다.
         // 출처 미상(도입 전 행)만 빠진다 — 서버 추출인지 사용자 입력인지 소급 판정할 수 없기 때문이다.
         //
-        // 동시에 이 케이스는 **item 과 priceHistory 가 별개의 축**임을 고정한다. 이력 맨 앞은 내 수기(99,000원)인데
-        // 표시값은 마지막 기계 READY 인 LLM 버전(97,000원)이다 — 포인터가 기계 버전이라 수기 존중 분기에 닿지 않는다.
+        // 동시에 이 케이스는 **item 과 priceHistory 가 별개의 축**임을 고정한다. 이력은 편집자를 가리지 않는 그 상품의
+        // 기록이고, 표시값은 내 맥락의 값 vs 공유 기계 READY 의 최신순(#1051)이다 — 포인터가 기계 버전을 가리켜도 내 수기
+        // (99,000원)가 LLM 버전(97,000원)보다 새로우므로 카드는 내 수기값이다.
         val mockMvc = buildMockMvc()
         val me = UUID.randomUUID()
         val other = UUID.randomUUID()
         insertMember(me)
         val itemId = saveItem("https://shop.example.com/products/source-labels")
-        saveVersion(itemId, "출처 미상", 90_000, source = null, editedBy = null)
-        val machine = saveVersion(itemId, "기계 추출", 95_000, source = ItemSnapshotSource.SERVER, editedBy = null)
-        saveVersion(itemId, "타인 수기", 80_000, source = ItemSnapshotSource.MANUAL, editedBy = other)
-        saveVersion(itemId, "LLM 추출", 97_000, source = ItemSnapshotSource.SERVER_LLM, editedBy = null)
-        saveVersion(itemId, "내 수기", 99_000, source = ItemSnapshotSource.MANUAL, editedBy = me)
+        saveVersion(itemId, "출처 미상", 90_000, source = null, createdBy = null)
+        val machine = saveVersion(itemId, "기계 추출", 95_000, source = ItemSnapshotSource.SERVER, createdBy = null)
+        saveVersion(itemId, "타인 수기", 80_000, source = ItemSnapshotSource.MANUAL, createdBy = other)
+        saveVersion(itemId, "LLM 추출", 97_000, source = ItemSnapshotSource.SERVER_LLM, createdBy = null)
+        saveVersion(itemId, "내 수기", 99_000, source = ItemSnapshotSource.MANUAL, createdBy = me)
         val wishId = saveWish(me, machine)
 
         mockMvc
@@ -136,9 +137,9 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
             .andExpect(jsonPath("$.data.priceHistory[3].price").value(95_000))
             .andExpect(jsonPath("$.data.priceHistory[3].source").value("SERVER"))
             .andExpect(jsonPath("$.data.item.id").value(itemId))
-            // 표시값은 파생 규칙(#857)대로 마지막 기계 READY 다 — 이력 첫 항목(내 수기)과 다르다.
-            .andExpect(jsonPath("$.data.item.price").value(97_000))
-            .andExpect(jsonPath("$.data.item.source").value("SERVER_LLM"))
+            // 표시값은 파생 규칙(#1051)대로 내 최신 수기 — 그보다 새로운 서버 READY 가 없으므로 포인터와 무관하게 이긴다.
+            .andExpect(jsonPath("$.data.item.price").value(99_000))
+            .andExpect(jsonPath("$.data.item.source").value("MANUAL"))
     }
 
     @Test
@@ -150,7 +151,7 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         val itemId = saveItem("https://shop.example.com/products/manual-display")
         saveMachineReady(itemId, "기계 값", 109_000, LocalDateTime.of(2026, 6, 1, 10, 0))
         // 기계 READY 보다 뒤에 쌓인 내 수기 — 표시값이 되고(수기 존중) 이력에도 맨 앞에 온다.
-        val myEdit = saveVersion(itemId, "내가 고친 값", 99_000, source = ItemSnapshotSource.MANUAL, editedBy = userId)
+        val myEdit = saveVersion(itemId, "내가 고친 값", 99_000, source = ItemSnapshotSource.MANUAL, createdBy = userId)
         val wishId = saveWish(userId, myEdit)
 
         mockMvc
@@ -177,8 +178,8 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         insertMember(userId)
         val itemId = saveItem("https://shop.example.com/products/never-parsed")
         itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, status = ItemStatus.FAILED))
-        saveVersion(itemId, "직접 입력 1차", 120_000, source = ItemSnapshotSource.MANUAL, editedBy = userId)
-        val second = saveVersion(itemId, "직접 입력 2차", 110_000, source = ItemSnapshotSource.MANUAL, editedBy = userId)
+        saveVersion(itemId, "직접 입력 1차", 120_000, source = ItemSnapshotSource.MANUAL, createdBy = userId)
+        val second = saveVersion(itemId, "직접 입력 2차", 110_000, source = ItemSnapshotSource.MANUAL, createdBy = userId)
         val wishId = saveWish(userId, second)
 
         mockMvc
@@ -200,8 +201,8 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         val itemId = saveItem("https://shop.example.com/products/mixed")
         val ready = saveMachineReady(itemId, "완성 버전", 50_000, LocalDateTime.now())
         // 같은 item 에 가격 없는 버전들을 섞어 둔다 — 이력에서 빠져야 한다.
-        itemSnapshotRepository.save(ItemSnapshot.pending(itemId))
-        itemSnapshotRepository.save(ItemSnapshot.pending(itemId).apply { markProcessing() })
+        itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = userId))
+        itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = userId).apply { markProcessing() })
         itemSnapshotRepository.save(ItemSnapshot(itemId = itemId, status = ItemStatus.FAILED))
         val wishId = saveWish(userId, ready)
 
@@ -251,7 +252,7 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         val itemId = saveItem("https://shop.example.com/products/pending-only")
-        val pending = itemSnapshotRepository.save(ItemSnapshot.pending(itemId)).getId()
+        val pending = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = userId)).getId()
         val wishId = saveWish(userId, pending)
 
         mockMvc
@@ -336,7 +337,7 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
         name: String,
         price: Int,
         source: ItemSnapshotSource?,
-        editedBy: UUID?,
+        createdBy: UUID?,
     ): Long =
         itemSnapshotRepository
             .save(
@@ -349,7 +350,7 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
                     status = ItemStatus.READY,
                     extractedAt = LocalDateTime.now(),
                     source = source,
-                    editedBy = editedBy,
+                    createdBy = createdBy,
                 ),
             ).getId()
 
@@ -378,7 +379,10 @@ class WishPriceHistoryIntegrationTest : IntegrationTestSupport() {
     private fun saveWish(
         userId: UUID,
         snapshotId: Long,
-    ): Long = wishRepository.save(Wish(userId = userId, snapshotId = snapshotId)).getId()
+    ): Long {
+        val itemId = requireNotNull(itemSnapshotRepository.findById(snapshotId)) { "snapshot $snapshotId 없음" }.itemId
+        return wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshotId, itemId = itemId)).getId()
+    }
 
     private fun buildMockMvc(): MockMvc =
         MockMvcBuilders

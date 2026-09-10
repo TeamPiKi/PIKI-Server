@@ -29,9 +29,9 @@ import org.springframework.web.context.WebApplicationContext
 import java.time.LocalDateTime
 import java.util.UUID
 
-// 카드 표시값 파생(#857)의 위시 계약 검증 — "최신 기계 READY 는 절대 지지 않는다". 포인터가 옛 버전·수기를
-// 가리켜도 화면 값은 파생 규칙(기계 우선·수기는 자기 맥락 한정·기계 없으면 포인터 fallback)을 따른다.
-// 시딩은 저장소 직접 적재(파생은 조회 계층 순수 로직이라 등록·파싱 흐름과 독립적으로 검증 가능) — @Transactional 롤백 격리.
+// 카드 표시값 파생(#857·#1051)의 위시 계약 검증 — 화면값은 포인터가 아니라 "내 맥락의 값 vs 공유 기계 READY" 로 계산한다.
+// 분기 망라는 ItemVersionsTest(단위)가 맡고, 여기는 목록·단건 API 가 그 규칙을 실제로 타는지와 포인터가 판정에
+// 끼어들지 않는지를 HTTP 경계에서 고정한다. 시딩은 저장소 직접 적재 — @Transactional 롤백 격리.
 @Transactional
 class WishDisplayIntegrationTest : IntegrationTestSupport() {
     @Autowired private lateinit var webApplicationContext: WebApplicationContext
@@ -52,10 +52,10 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
         val userA = UUID.randomUUID()
         insertMember(userA)
         val itemId = saveItem("https://shop.example.com/products/display-1")
-        val v1 = saveVersion(itemId, "옛 기계값", 100_000, ItemSnapshotSource.SERVER)
-        val wishId = saveWish(userA, v1)
+        val v1 = saveVersion(itemId, "옛 기계값", 100_000, ItemSnapshotSource.SERVER, by = userA)
+        val wishId = saveWish(userA, itemId, v1)
         // 다른 참조(다른 위시·갱신)가 만든 새 기계 버전 — A 의 포인터는 여전히 v1 이다.
-        saveVersion(itemId, "새 기계값", 90_000, ItemSnapshotSource.SERVER)
+        saveVersion(itemId, "새 기계값", 90_000, ItemSnapshotSource.SERVER, by = UUID.randomUUID())
 
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
@@ -78,18 +78,16 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
         insertMember(userA)
         insertMember(userB)
         val itemId = saveItem("https://shop.example.com/products/display-2")
-        val machine = saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER)
-        val manual = saveVersion(itemId, "A의 수기값", 80_000, ItemSnapshotSource.MANUAL, editedBy = userA)
-        saveWish(userA, manual)
-        saveWish(userB, machine)
+        val machine = saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER, by = userB)
+        val manual = saveVersion(itemId, "A의 수기값", 80_000, ItemSnapshotSource.MANUAL, by = userA)
+        saveWish(userA, itemId, manual)
+        saveWish(userB, itemId, machine)
 
-        // 수기가 놓인 맥락(A 의 위시)은 수기값 — 아직 그보다 새로운 기계가 없으므로 존중된다.
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data[0].item.name").value("A의 수기값"))
             .andExpect(jsonPath("$.data[0].item.price").value(80_000))
-        // 관련 없는 맥락(B 의 위시)은 타인의 수기와 무관하게 마지막 기계값.
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userB)}"))
             .andExpect(status().isOk)
@@ -98,16 +96,16 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
-    fun `수기 뒤에 새 기계 READY 가 생기면 수기를 놓은 위시도 기계값으로 돌아간다 - 기계는 절대 지지 않는다`() {
+    fun `수기 뒤에 새 기계 READY 가 생기면 수기를 놓은 위시도 기계값으로 돌아간다`() {
         val mockMvc = buildMockMvc()
         val userA = UUID.randomUUID()
         insertMember(userA)
         val itemId = saveItem("https://shop.example.com/products/display-3")
-        saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER)
-        val manual = saveVersion(itemId, "A의 수기값", 80_000, ItemSnapshotSource.MANUAL, editedBy = userA)
-        saveWish(userA, manual)
-        // 수기보다 새로운 기계 READY — 수기 존중은 여기서 끝난다.
-        saveVersion(itemId, "더 새 기계값", 95_000, ItemSnapshotSource.SERVER)
+        saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER, by = userA)
+        val manual = saveVersion(itemId, "A의 수기값", 80_000, ItemSnapshotSource.MANUAL, by = userA)
+        saveWish(userA, itemId, manual)
+        // 수기보다 새로운 기계 READY(누가 새로고침했든) — 수기 존중은 여기서 끝난다.
+        saveVersion(itemId, "더 새 기계값", 95_000, ItemSnapshotSource.SERVER, by = UUID.randomUUID())
 
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
@@ -117,16 +115,14 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
-    fun `갱신 중 포인터는 기계 READY 가 있어도 진행 중 상태를 유지한다 - 자기가 시작한 갱신의 UX 신호`() {
+    fun `내가 시작한 갱신은 기계 READY 가 있어도 진행 중 상태를 보인다`() {
         val mockMvc = buildMockMvc()
         val userA = UUID.randomUUID()
         insertMember(userA)
         val itemId = saveItem("https://shop.example.com/products/display-5")
-        saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER)
-        // 새로고침이 만든 진행 중 버전에 포인터가 걸린 상태 — 완성 값(기계 READY)이 있어도 진행 중 표시가 유지돼야
-        // 갱신 흐름의 프로세싱 UI 가 살아 있다(값이 없어 이김/짐의 대상이 아니다).
-        val inProgress = itemSnapshotRepository.save(ItemSnapshot.pending(itemId))
-        saveWish(userA, inProgress.getId())
+        saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER, by = userA)
+        val inProgress = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = userA))
+        saveWish(userA, itemId, inProgress.getId())
 
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
@@ -136,14 +132,41 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
     }
 
     @Test
-    fun `기계 READY 가 없는 상품은 포인터 버전을 그대로 보여준다 - 수기 복구·도입 전 데이터 fallback`() {
+    fun `남이 시작한 갱신은 내 카드에 보이지 않는다 - 내 카드는 완성 값을 그대로 본다`() {
+        // 불변식(#1051): 남의 새로고침 진행 중·남의 미완은 내 카드에 새어 들어오지 않는다. 포인터가 아니라 행의 만든 사람으로 가른다.
+        val mockMvc = buildMockMvc()
+        val userA = UUID.randomUUID()
+        val userB = UUID.randomUUID()
+        insertMember(userA)
+        val itemId = saveItem("https://shop.example.com/products/display-6")
+        val machine = saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER, by = userA)
+        saveWish(userA, itemId, machine)
+        itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = userB))
+        saveVersion(itemId, "B의 미완", null, ItemSnapshotSource.SERVER, by = userB, status = ItemStatus.INCOMPLETE)
+
+        mockMvc
+            .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data[0].item.status").value("READY"))
+            .andExpect(jsonPath("$.data[0].item.name").value("기계값"))
+    }
+
+    @Test
+    fun `새로고침이 실패해도 내 수기값은 그대로다 - 포인터가 FAILED 로 옮겨 가도 카드는 새로고침 전과 같다`() {
         val mockMvc = buildMockMvc()
         val userA = UUID.randomUUID()
         insertMember(userA)
-        val itemId = saveItem("https://shop.example.com/products/display-4")
-        // 추출 실패를 수기로 복구해 수기값이 유일한 값인 상품.
-        val manual = saveVersion(itemId, "수기 복구값", 70_000, ItemSnapshotSource.MANUAL, editedBy = userA)
-        saveWish(userA, manual)
+        val itemId = saveItem("https://shop.example.com/products/display-7")
+        // 추출 실패를 수기로 복구해 수기값이 유일한 값인 상품 — 새로고침이 실패하면 옛 규칙에선 빈 카드가 됐다.
+        saveVersion(itemId, "수기 복구값", 70_000, ItemSnapshotSource.MANUAL, by = userA)
+        val failed =
+            itemSnapshotRepository.save(
+                ItemSnapshot.pending(itemId, requestedBy = userA).apply {
+                    markProcessing()
+                    markFailed()
+                },
+            )
+        saveWish(userA, itemId, failed.getId())
 
         mockMvc
             .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
@@ -152,14 +175,34 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
             .andExpect(jsonPath("$.data[0].item.price").value(70_000))
     }
 
+    @Test
+    fun `내 새로고침이 INCOMPLETE 로 끝나면 옛 READY 대신 일부만 빈 상태를 보인다`() {
+        val mockMvc = buildMockMvc()
+        val userA = UUID.randomUUID()
+        insertMember(userA)
+        val itemId = saveItem("https://shop.example.com/products/display-8")
+        saveVersion(itemId, "기계값", 100_000, ItemSnapshotSource.SERVER, by = userA)
+        val incomplete =
+            saveVersion(itemId, "일부만", null, ItemSnapshotSource.SERVER, by = userA, status = ItemStatus.INCOMPLETE)
+        saveWish(userA, itemId, incomplete)
+
+        mockMvc
+            .perform(get("/api/v1/wishlists").header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userA)}"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data[0].item.status").value("INCOMPLETE"))
+            .andExpect(jsonPath("$.data[0].item.name").value("일부만"))
+            .andExpect(jsonPath("$.data[0].item.price").doesNotExist())
+    }
+
     private fun saveItem(url: String): Long = itemRepository.save(Item(link = ProductLink.parse(url))).getId()
 
     private fun saveVersion(
         itemId: Long,
         name: String,
-        price: Int,
+        price: Int?,
         source: ItemSnapshotSource?,
-        editedBy: UUID? = null,
+        by: UUID?,
+        status: ItemStatus = ItemStatus.READY,
     ): Long =
         itemSnapshotRepository
             .save(
@@ -168,18 +211,19 @@ class WishDisplayIntegrationTest : IntegrationTestSupport() {
                     name = name,
                     price = price,
                     currency = "KRW",
-                    imageUrl = "https://cdn.example.com/p/$price.jpg",
-                    status = ItemStatus.READY,
+                    imageUrl = price?.let { "https://cdn.example.com/p/$it.jpg" },
+                    status = status,
                     extractedAt = LocalDateTime.now(),
                     source = source,
-                    editedBy = editedBy,
+                        createdBy = by,
                 ),
             ).getId()
 
     private fun saveWish(
         userId: UUID,
+        itemId: Long,
         snapshotId: Long,
-    ): Long = wishRepository.save(Wish(userId = userId, snapshotId = snapshotId)).getId()
+    ): Long = wishRepository.save(Wish(userId = userId, waitingSnapshotId = snapshotId, itemId = itemId)).getId()
 
     private fun buildMockMvc(): MockMvc =
         MockMvcBuilders

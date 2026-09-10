@@ -47,10 +47,10 @@ class S3ImageStorage(
     override fun presignUpload(
         key: String,
         contentType: String,
+        contentLength: Long,
         expiry: Duration,
     ): String =
         // 서명은 로컬 계산이라 네트워크 호출이 없지만, SDK 예외(자격증명 없음 등)는 계약 예외(502)로 변환한다.
-        // contentType 을 putObjectRequest 에 박아 서명하면, 클라이언트는 같은 content-type 헤더로만 PUT 할 수 있다(S3 가 강제).
         runCatching {
             s3Presigner
                 .presignPutObject(
@@ -63,6 +63,7 @@ class S3ImageStorage(
                                 .bucket(s3Properties.bucket)
                                 .key(key)
                                 .contentType(contentType)
+                                .contentLength(contentLength)
                                 .build(),
                         ).build(),
                 ).url()

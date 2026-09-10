@@ -48,6 +48,12 @@ interface TournamentUserJpaRepository : JpaRepository<TournamentUser, Long> {
     @Query("SELECT COUNT(tu) FROM TournamentUser tu WHERE tu.tournamentId = :tournamentId AND tu.completedAt IS NOT NULL")
     fun countCompletedByTournamentId(@Param("tournamentId") tournamentId: Long): Int
 
+    // 목록 카드의 "플레이한 N" 배치 조회(#1062). 단건 findCompletedByTournamentId 와 같은 기준(completedAt, deletedAt 무관)이다.
+    @Query("SELECT tu FROM TournamentUser tu WHERE tu.tournamentId IN :tournamentIds AND tu.completedAt IS NOT NULL")
+    fun findCompletedByTournamentIdIn(
+        @Param("tournamentIds") tournamentIds: Collection<Long>,
+    ): List<TournamentUser>
+
     @Modifying
     @Query("UPDATE TournamentUser tu SET tu.deletedAt = :now WHERE tu.tournamentId = :tournamentId AND tu.userId = :userId AND tu.deletedAt IS NULL")
     fun softDeleteByTournamentIdAndUserId(

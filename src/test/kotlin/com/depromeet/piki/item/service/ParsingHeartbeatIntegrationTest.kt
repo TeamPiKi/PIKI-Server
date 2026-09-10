@@ -57,7 +57,7 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
     @Test
     fun `claim attempt 와 어긋난 결과는 markExtracted 가 전이하지 않고 폐기한다`() {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/fence-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
         try {
             // 소유권이 다른 시도로 넘어가 attempt 2 가 된 상황을 DB 에 반영. updated_at=now 라 배경 recover 가 안 건드린다.
@@ -86,7 +86,7 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
     fun `소유권 attempt 가 일치하면 markExtracted 가 정상 전이한다`() {
         // fencing 대조군 — 어긋날 때만 막고, 일치하면 그대로 전이함을 함께 고정한다. 워커를 태우지 않으므로 stub 세팅은 불필요하다.
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/match-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
         try {
             // 실제 흐름대로 워커의 소유권 획득(0 -> 1)을 재현한 뒤 그 토큰으로 전이한다.
@@ -115,7 +115,7 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
             ProductSnapshot(link = it, name = "호출됨", price = 1_000, currency = "KRW", imageUrl = "https://img.example.com/c.png")
         }
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/guard-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
 
         // 워커의 스킵은 부수효과가 없어 로그가 유일한 완료 신호다 — 그 로그로 완료를 관측해 "ext 미호출"을 결정적으로 단언한다.
@@ -148,7 +148,7 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
         // raw 를 회수해버린다 — 재클레임된 새 시도가 재실행할 원본을 잃는 데이터 유실 경로다. 그 회귀를 고정한다.
         val imageKey = "items/raw/zombie-${UUID.randomUUID()}.jpg"
         val item = itemRepository.save(Item(sourceImageKey = imageKey))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
 
         // 추출이 도는 사이 소유권이 다른 시도로 넘어간(attempt 2) 상황을 stub 안에서 재현한다 — 시작 시 획득은 성공하고
@@ -187,7 +187,7 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
         // 예산이 소진된 행을 PENDING 으로 되돌리면 디스패처가 다시 집어 무한 재큐잉이 된다. 반납 경로도 되살림 경로와
         // 같은 상한 판정을 거치는지 고정한다.
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/exhaust-${UUID.randomUUID()}")))
-        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId()).apply { markProcessing() })
+        val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() })
         val snapshotId = snapshot.getId()
         // 마지막 실행 예산만 남긴 상태에서 진입시킨다 — 워커가 획득하며 +1 해 상한(MAX_ATTEMPTS)에 닿는다.
         jdbcTemplate.update("UPDATE item_snapshots SET attempt_count = ? WHERE id = ?", ItemParsingService.MAX_ATTEMPTS - 1, snapshotId)

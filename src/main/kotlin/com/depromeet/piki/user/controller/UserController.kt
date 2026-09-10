@@ -46,7 +46,7 @@ class UserController(
     ): ApiResponseBody<PresignedImageUpload> {
         // 업로드 URL 발급만 한다 — 바이트는 클라가 S3 로 직접 보내고 서버를 거치지 않는다.
         // 권한(MEMBER)·형식 검증은 발급 단계에서 끝내, 올릴 자격이 없는 요청에 URL 을 주지 않는다.
-        val upload = profileUpdateService.presignProfileImage(userId, request.contentType)
+        val upload = profileUpdateService.presignProfileImage(userId, request.contentType, request.contentLength)
         return ApiResponseBody.ok(PresignedImageUpload.from(upload))
     }
 
