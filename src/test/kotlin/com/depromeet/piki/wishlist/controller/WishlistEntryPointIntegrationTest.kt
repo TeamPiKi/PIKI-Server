@@ -109,9 +109,14 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
         buildMockMvc().perform(request).andExpect(status().isCreated)
     }
 
+    // 유입 경로는 wish 를 거쳐야 사용자에 닿는다. 기록이 user_id 를 들지 않는다는 것이 이 조인으로 드러난다.
     private fun recordedEntryPoints(userId: UUID): List<String?> =
         jdbcTemplate.queryForList(
-            "SELECT entry_point FROM wish_registration_events WHERE user_id = ? ORDER BY id",
+            """
+            SELECT e.entry_point FROM wish_registration_events e
+            JOIN wishes w ON w.id = e.wish_id
+            WHERE w.user_id = ? ORDER BY e.id
+            """.trimIndent(),
             String::class.java,
             uuidToBytes(userId),
         )
@@ -134,7 +139,15 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     private fun memberToken(userId: UUID): String = jwtProvider.generateAccessToken(userId, IdentityType.MEMBER)
 
     private fun cleanup(userId: UUID) {
-        jdbcTemplate.update("DELETE FROM wish_registration_events WHERE user_id = ?", uuidToBytes(userId))
+        val wishIds =
+            jdbcTemplate.queryForList(
+                "SELECT id FROM wishes WHERE user_id = ?",
+                Long::class.java,
+                uuidToBytes(userId),
+            )
+        wishIds.takeIf { it.isNotEmpty() }?.let {
+            jdbcTemplate.update("DELETE FROM wish_registration_events WHERE wish_id IN (${it.joinToString(",")})")
+        }
         val itemIds =
             jdbcTemplate.queryForList(
                 "SELECT s.item_id FROM wishes w JOIN item_snapshots s ON s.id = w.snapshot_id WHERE w.user_id = ?",

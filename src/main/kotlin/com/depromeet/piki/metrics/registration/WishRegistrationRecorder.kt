@@ -2,7 +2,6 @@ package com.depromeet.piki.metrics.registration
 
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
-import java.util.UUID
 
 // best-effort — 여기서 터진 예외를 위로 올리면 이미 성공한 등록이 5xx 로 뒤집힌다
 // (DailyActivityRecorder 와 같은 결).
@@ -13,7 +12,6 @@ class WishRegistrationRecorder(
     private val log = LoggerFactory.getLogger(javaClass)
 
     fun record(
-        userId: UUID,
         wishId: Long,
         rawEntryPoint: String?,
     ) {
@@ -21,7 +19,6 @@ class WishRegistrationRecorder(
             repository.save(
                 WishRegistrationEvent(
                     wishId = wishId,
-                    userId = userId,
                     entryPoint = EntryPoint.from(rawEntryPoint),
                 ),
             )

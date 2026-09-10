@@ -50,11 +50,7 @@ class WishlistController(
         @RequestHeader(name = EntryPoint.HEADER, required = false) rawEntryPoint: String?,
     ): ApiResponseBody<WishItemResponse> {
         val result = wishlistService.registerFromUrl(rawUrl = request.url, userId = userId)
-        wishRegistrationRecorder.record(
-            userId = userId,
-            wishId = result.wish.getId(),
-            rawEntryPoint = rawEntryPoint,
-        )
+        wishRegistrationRecorder.record(wishId = result.wish.getId(), rawEntryPoint = rawEntryPoint)
         return ApiResponseBody.created(
             WishItemResponse.fromRegistration(result),
         )
