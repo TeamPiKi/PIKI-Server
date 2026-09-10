@@ -4,12 +4,14 @@ import com.depromeet.piki.common.response.ApiResponseBody
 import com.depromeet.piki.image.controller.dto.ConfirmImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadResponse
+import com.depromeet.piki.metrics.registration.EntryPoint
 import com.depromeet.piki.wishlist.controller.dto.WishDetailResponse
 import com.depromeet.piki.wishlist.controller.dto.WishItemResponse
 import com.depromeet.piki.wishlist.controller.dto.WishlistRegisterRequest
 import com.depromeet.piki.wishlist.controller.dto.WishlistUpdateRequest
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
+import io.swagger.v3.oas.annotations.enums.ParameterIn
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
@@ -151,6 +153,16 @@ interface WishlistApi {
     fun registerFromUrl(
         @Parameter(hidden = true) userId: UUID,
         request: WishlistRegisterRequest,
+        @Parameter(
+            `in` = ParameterIn.HEADER,
+            name = EntryPoint.HEADER,
+            required = false,
+            description = "이 등록이 어느 경로로 들어왔는지 — EXTERNAL_SHARE(타앱 공유 시트) · IN_APP(앱 안에서 링크 입력). " +
+                "서버 카운팅 전용이라 등록 결과에는 영향이 없다. 누락하거나 서버가 모르는 값을 보내도 400 이 아니라 " +
+                "UNKNOWN 으로 집계될 뿐이므로, 클라이언트가 새 값을 먼저 배포해도 안전하다.",
+            schema = Schema(type = "string", allowableValues = ["EXTERNAL_SHARE", "IN_APP"]),
+        )
+        rawEntryPoint: String?,
     ): ApiResponseBody<WishItemResponse>
 
     @Operation(

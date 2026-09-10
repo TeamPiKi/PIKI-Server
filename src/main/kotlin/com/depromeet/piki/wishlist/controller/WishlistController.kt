@@ -5,6 +5,8 @@ import com.depromeet.piki.common.response.PageResponse
 import com.depromeet.piki.image.controller.dto.ConfirmImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadResponse
+import com.depromeet.piki.metrics.registration.EntryPoint
+import com.depromeet.piki.metrics.registration.WishRegistrationRecorder
 import com.depromeet.piki.wishlist.controller.dto.WishDetailResponse
 import com.depromeet.piki.wishlist.controller.dto.WishItemResponse
 import com.depromeet.piki.wishlist.controller.dto.WishlistRegisterRequest
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestPart
@@ -35,16 +38,25 @@ import java.util.UUID
 @RequestMapping("/api/v1/wishlists")
 class WishlistController(
     private val wishlistService: WishlistService,
+    private val wishRegistrationRecorder: WishRegistrationRecorder,
 ) : WishlistApi {
     private fun toResponse(result: WishWithItem): WishItemResponse = WishItemResponse.from(result)
 
+    // 유입 경로(#1074)는 여기서 받아 여기서 기록하고 아래로 넘기지 않는다. 서비스에 파라미터로 넘기면
+    // 도메인 계층이 관측을 알게 되고, 다음 관측 요구가 올 때마다 시그니처가 늘어난다.
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     override fun registerFromUrl(
         @AuthenticationPrincipal userId: UUID,
         @Valid @RequestBody request: WishlistRegisterRequest,
+        @RequestHeader(name = EntryPoint.HEADER, required = false) rawEntryPoint: String?,
     ): ApiResponseBody<WishItemResponse> {
         val result = wishlistService.registerFromUrl(rawUrl = request.url, userId = userId)
+        wishRegistrationRecorder.record(
+            userId = userId,
+            wishId = result.wish.getId(),
+            rawEntryPoint = rawEntryPoint,
+        )
         return ApiResponseBody.created(
             WishItemResponse.fromRegistration(result),
         )
