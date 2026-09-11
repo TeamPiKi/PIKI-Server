@@ -1,7 +1,7 @@
 package com.depromeet.piki.wishlist.controller
 
 import com.depromeet.piki.auth.infrastructure.jwt.JwtProvider
-import com.depromeet.piki.metrics.registration.EntryPoint
+import com.depromeet.piki.metrics.registration.ExternalEntry
 import com.depromeet.piki.support.IntegrationTestSupport
 import com.depromeet.piki.support.StubItemParsingWorker
 import com.depromeet.piki.support.uuidToBytes
@@ -41,43 +41,33 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
     private lateinit var stubItemParsingWorker: StubItemParsingWorker
 
     @Test
-    fun `공유 시트로 들어온 등록은 EXTERNAL_SHARE 로 기록된다`() {
+    fun `공유 시트로 넘어온 담기는 SHARE_SHEET 로 기록된다`() {
         val userId = UUID.randomUUID()
         insertMember(userId)
 
-        register(userId, "https://shop.example.com/products/1", entryPoint = "EXTERNAL_SHARE")
+        register(userId, "https://shop.example.com/products/1", entryPoint = "SHARE_SHEET")
 
-        assertEquals(listOf(EntryPoint.EXTERNAL_SHARE.name), recordedEntryPoints(userId))
+        assertEquals(listOf(ExternalEntry.SHARE_SHEET.name), recordedEntries(userId))
     }
 
     @Test
-    fun `앱 안에서 담은 등록은 IN_APP 으로 기록된다`() {
+    fun `앱이나 웹에서 직접 담으면 헤더가 없고 행도 남지 않는다`() {
         val userId = UUID.randomUUID()
         insertMember(userId)
 
-        register(userId, "https://shop.example.com/products/2", entryPoint = "IN_APP")
+        register(userId, "https://shop.example.com/products/2", entryPoint = null)
 
-        assertEquals(listOf(EntryPoint.IN_APP.name), recordedEntryPoints(userId))
+        assertEquals(emptyList(), recordedEntries(userId))
     }
 
     @Test
-    fun `헤더를 보내지 않은 구버전 앱의 등록도 201 이 나가고 UNKNOWN 으로 기록된다`() {
+    fun `서버가 모르는 헤더 값이 와도 등록은 201 이고 행은 남지 않는다`() {
         val userId = UUID.randomUUID()
         insertMember(userId)
 
-        register(userId, "https://shop.example.com/products/3", entryPoint = null)
+        register(userId, "https://shop.example.com/products/3", entryPoint = "WIDGET")
 
-        assertEquals(listOf(EntryPoint.UNKNOWN.name), recordedEntryPoints(userId))
-    }
-
-    @Test
-    fun `서버가 모르는 헤더 값이 와도 등록은 201 이고 UNKNOWN 으로 접혀 기록된다`() {
-        val userId = UUID.randomUUID()
-        insertMember(userId)
-
-        register(userId, "https://shop.example.com/products/4", entryPoint = "WIDGET")
-
-        assertEquals(listOf(EntryPoint.UNKNOWN.name), recordedEntryPoints(userId))
+        assertEquals(emptyList(), recordedEntries(userId))
     }
 
     private fun register(
@@ -90,7 +80,7 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer ${memberToken(userId)}")
                 .content(objectMapper.writeValueAsString(mapOf("url" to url)))
-        entryPoint?.let { request.header(EntryPoint.HEADER, it) }
+        entryPoint?.let { request.header(ExternalEntry.HEADER, it) }
 
         // 파싱은 이 테스트의 관심사가 아니고, 켜 두면 워커가 미커밋 item 을 읽어 warn 을 쏟는다.
         stubItemParsingWorker.enabled = false
@@ -101,10 +91,10 @@ class WishlistEntryPointIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    private fun recordedEntryPoints(userId: UUID): List<String?> =
+    private fun recordedEntries(userId: UUID): List<String?> =
         jdbcTemplate.queryForList(
             """
-            SELECT e.entry_point FROM wish_registration_events e
+            SELECT e.entry_point FROM wish_external_entries e
             JOIN wishes w ON w.id = e.wish_id
             WHERE w.user_id = ? ORDER BY e.id
             """.trimIndent(),

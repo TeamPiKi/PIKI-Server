@@ -8,11 +8,11 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.Table
 
 @Entity
-@Table(name = "wish_registration_events")
-class WishRegistrationEvent(
+@Table(name = "wish_external_entries")
+class WishExternalEntry(
     @Column(name = "wish_id", nullable = false)
     val wishId: Long,
     @Enumerated(EnumType.STRING)
     @Column(name = "entry_point", nullable = false, length = 16)
-    val entryPoint: EntryPoint,
+    val entryPoint: ExternalEntry,
 ) : LongBaseEntity()

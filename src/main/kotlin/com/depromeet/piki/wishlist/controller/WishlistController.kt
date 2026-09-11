@@ -5,8 +5,8 @@ import com.depromeet.piki.common.response.PageResponse
 import com.depromeet.piki.image.controller.dto.ConfirmImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadResponse
-import com.depromeet.piki.metrics.registration.EntryPoint
-import com.depromeet.piki.metrics.registration.WishRegistrationRecorder
+import com.depromeet.piki.metrics.registration.ExternalEntry
+import com.depromeet.piki.metrics.registration.WishExternalEntryRecorder
 import com.depromeet.piki.wishlist.controller.dto.WishDetailResponse
 import com.depromeet.piki.wishlist.controller.dto.WishItemResponse
 import com.depromeet.piki.wishlist.controller.dto.WishlistRegisterRequest
@@ -38,7 +38,7 @@ import java.util.UUID
 @RequestMapping("/api/v1/wishlists")
 class WishlistController(
     private val wishlistService: WishlistService,
-    private val wishRegistrationRecorder: WishRegistrationRecorder,
+    private val wishExternalEntryRecorder: WishExternalEntryRecorder,
 ) : WishlistApi {
     private fun toResponse(result: WishWithItem): WishItemResponse = WishItemResponse.from(result)
 
@@ -47,10 +47,10 @@ class WishlistController(
     override fun registerFromUrl(
         @AuthenticationPrincipal userId: UUID,
         @Valid @RequestBody request: WishlistRegisterRequest,
-        @RequestHeader(name = EntryPoint.HEADER, required = false) rawEntryPoint: String?,
+        @RequestHeader(name = ExternalEntry.HEADER, required = false) rawEntryPoint: String?,
     ): ApiResponseBody<WishItemResponse> {
         val result = wishlistService.registerFromUrl(rawUrl = request.url, userId = userId)
-        wishRegistrationRecorder.record(wishId = result.wish.getId(), rawEntryPoint = rawEntryPoint)
+        wishExternalEntryRecorder.record(wishId = result.wish.getId(), rawEntryPoint = rawEntryPoint)
         return ApiResponseBody.created(
             WishItemResponse.fromRegistration(result),
         )

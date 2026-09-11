@@ -4,7 +4,7 @@ import com.depromeet.piki.common.response.ApiResponseBody
 import com.depromeet.piki.image.controller.dto.ConfirmImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadRequest
 import com.depromeet.piki.image.controller.dto.PresignedImageUploadResponse
-import com.depromeet.piki.metrics.registration.EntryPoint
+import com.depromeet.piki.metrics.registration.ExternalEntry
 import com.depromeet.piki.wishlist.controller.dto.WishDetailResponse
 import com.depromeet.piki.wishlist.controller.dto.WishItemResponse
 import com.depromeet.piki.wishlist.controller.dto.WishlistRegisterRequest
@@ -155,11 +155,12 @@ interface WishlistApi {
         request: WishlistRegisterRequest,
         @Parameter(
             `in` = ParameterIn.HEADER,
-            name = EntryPoint.HEADER,
+            name = ExternalEntry.HEADER,
             required = false,
-            description = "담기 유입 경로. EXTERNAL_SHARE 는 타앱 공유 시트로 넘어온 경우, IN_APP 은 앱 안에서 링크를 넣은 경우다. " +
-                "집계 전용이라 보내든 안 보내든 등록 결과는 같고, 생략하거나 모르는 값을 보내도 400 이 아니라 UNKNOWN 으로 센다.",
-            schema = Schema(type = "string", allowableValues = ["EXTERNAL_SHARE", "IN_APP"]),
+            description = "외부에서 넘어온 담기일 때만 보낸다. SHARE_SHEET 는 타앱 공유 시트로 링크가 전달된 경우다. " +
+                "앱이나 웹에서 직접 담는 경우는 기본이라 보내지 않는다. 집계 전용이라 등록 결과는 달라지지 않고, " +
+                "모르는 값을 보내도 400 이 아니라 집계에서 빠질 뿐이다.",
+            schema = Schema(type = "string", allowableValues = ["SHARE_SHEET"]),
         )
         rawEntryPoint: String?,
     ): ApiResponseBody<WishItemResponse>
