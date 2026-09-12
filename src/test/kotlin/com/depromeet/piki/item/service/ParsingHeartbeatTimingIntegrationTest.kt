@@ -21,8 +21,7 @@ import kotlin.test.assertTrue
 // ParsingHeartbeat 의 시계 조작 검증 (#802). 박동(renew)과 stale 판정은 시간 축이 본질이라 별도 타이밍 분류로 둔다.
 //
 // CLAUDE.md '동시성·시간 의존 통합 테스트' 규약: 비-@Transactional(박동은 별도 짧은 트랜잭션이 본질), 자기 데이터 직접 정리.
-// 시계는 sleep 이 아니라 updated_at·registeredAt 데이터 조작으로 돌린다. 배경 recover(@Scheduled, threshold=now-60s)가
-// 테스트 행을 가로채지 않도록, 검증 대상 행의 updated_at 은 항상 now-60s 보다 최신으로 둔다(stale 판정은 threshold 를 직접 넘겨 재현).
+// 시계는 sleep 이 아니라 updated_at·registeredAt 데이터 조작으로 돌린다(stale 판정은 threshold 를 직접 넘겨 재현).
 class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
     @Autowired private lateinit var parsingHeartbeat: ParsingHeartbeat
 
@@ -87,7 +86,7 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
         val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0
         val snapshotId = snapshot.getId()
         try {
-            // 소유권이 다른 시도로 넘어간 상황 재현 — 행은 attempt 2 이고, updated_at 은 now(신선)라 배경 recover 가 가로채지 않는다.
+            // 소유권이 다른 시도로 넘어간 상황 재현 — 행은 attempt 2 다.
             jdbcTemplate.update("UPDATE item_snapshots SET attempt_count = 2, updated_at = ? WHERE id = ?", LocalDateTime.now(), snapshotId)
 
             // 옛 시도(attempt 1)의 박동은 행(attempt 2)과 소유권이 안 맞아 0행이다(fencing).

@@ -75,7 +75,6 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
             }
             await().atMost(Duration.ofSeconds(10)).until { itemParsingExecutor.activeCount >= slots }
 
-            // 풀이 가득 찬 뒤에 일감을 만든다 — 그전에 만들면 배경 디스패처가 먼저 집어 전제가 깨진다.
             val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/capacity-${UUID.randomUUID()}")))
             itemId = item.getId()
             val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(itemId, requestedBy = UUID.randomUUID())).getId()
@@ -83,7 +82,7 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
             itemParsingScheduler.dispatch()
             assertEquals(ItemStatus.PENDING, statusOf(snapshotId), "가용 슬롯이 없으면 claim 하지 않고 PENDING 으로 남겨야 한다")
 
-            // 슬롯이 나면 같은 행을 집는다 (배경 디스패처가 먼저 집을 수도 있어 상태로 확인한다).
+            // 슬롯이 나면 같은 행을 집는다.
             release.countDown()
             await().atMost(Duration.ofSeconds(30)).until { itemParsingExecutor.activeCount == 0 }
             itemParsingScheduler.dispatch()
@@ -150,10 +149,6 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
     }
 
     // created_at 을 과거로 민 마감 대상 행. updated_at 은 now 로 둬 "박동이 신선한데도 마감에 걸린다"를 재현한다.
-    //
-    // created_at 은 배경 recover 의 마감 스캔(now - DEADLINE_MINUTES=3분)에는 **안 걸리고** 이 테스트가 넘기는
-    // threshold(now)에는 걸리도록 90초 전으로 둔다 — 배경 스케줄러가 먼저 종결해 테스트 호출의 반환 건수를 가로채는
-    // 경합을 없앤다(stale 쪽에서 updated_at 으로 쓰는 것과 같은 기법).
     private fun overdue(status: ItemStatus): Pair<Long, Long> {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/overdue-${UUID.randomUUID()}")))
         val snapshot = ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { if (status == ItemStatus.PROCESSING) markProcessing() }
@@ -167,8 +162,7 @@ class ItemParsingCapacityConcurrencyIntegrationTest : IntegrationTestSupport() {
         return item.getId() to snapshotId
     }
 
-    // stale 판정 대상이 될 PROCESSING 행을 만든다. updated_at 은 배경 recover(threshold = now-60s)에는 안 걸리고
-    // 이 테스트가 넘기는 threshold(now)에는 걸리도록 몇 초 전으로 둔다 — 배경 스케줄러와의 경합을 제거한다.
+    // stale 판정 대상이 될 PROCESSING 행을 만든다.
     private fun staleProcessing(attempt: Int): Pair<Long, Long> {
         val item = itemRepository.save(Item(ProductLink.parse("https://shop.example.com/products/slot-${UUID.randomUUID()}")))
         val snapshotId = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }).getId()
