@@ -264,8 +264,18 @@ jobs:
           # ff 라 대상 SHA 는 dev 에서 이미 CI 를 통과한 동일 커밋이므로, CI 재실행 없이 배포만 직접 dispatch 한다.
           # sha 를 명시로 넘긴다 — --ref 만 주면 GitHub 이 방금 올린 main 을 아직 옛 커밋으로 해석해
           # 승격 전 버전이 prod 로 나간다(2026-09-12 실측 #1084).
-          gh workflow run deploy.yml --ref main -f version="$VERSION" -f sha="$SRC_SHA"
-          echo "::notice::deploy.yml dispatch → main ($SRC_SHA, version=$VERSION)"
+          # 같은 지연이 입력 검증에도 걸린다: 옛 main 의 deploy.yml 에는 sha 입력이 없어 422 로 거부되므로
+          # 재시도로 반영을 기다린다. 실패한 채 끝나면 main 만 올라가고 배포가 빠지니 안내를 남긴다.
+          for ATTEMPT in 1 2 3; do
+            if gh workflow run deploy.yml --ref main -f version="$VERSION" -f sha="$SRC_SHA"; then
+              echo "::notice::deploy.yml dispatch → main ($SRC_SHA, version=$VERSION)"
+              exit 0
+            fi
+            echo "::warning::deploy dispatch 실패 ($ATTEMPT/3) — main 반영 지연 가능, 10초 후 재시도"
+            sleep 10
+          done
+          echo "::error::deploy dispatch 3회 실패. main 은 $SRC_SHA 로 승격됐으나 배포가 시작되지 않았다 — Actions 에서 Deploy 를 sha=$SRC_SHA 로 직접 실행하라."
+          exit 1
 
       - name: 요약
         if: ${{ always() }}
