@@ -48,8 +48,10 @@ jobs:
           # dispatch 의 github.sha 는 GitHub 이 --ref 를 해석한 결과라, 직전 ref 업데이트가 아직 안 퍼졌으면
           # 옛 커밋이 잡힌다(2026-09-12 prod 오배포 #1084). 호출자가 커밋을 명시하면 그것을 정본으로 삼는다.
           if [ -n "$INPUT_SHA" ]; then
-            printf '%s' "$INPUT_SHA" | grep -qE '^[0-9a-f]{40}$' \
-              || { echo "::error::sha 입력이 40자 hex 가 아니다 (받은 값=$INPUT_SHA). 짧은 sha·브랜치명은 받지 않는다."; exit 1; }
+            # grep 은 줄 단위라 개행이 섞인 입력의 한 줄만 맞아도 통과하고, 그 개행이 $GITHUB_OUTPUT 에
+            # 그대로 실려 environment 같은 뒤 키를 덮어쓴다. [[ =~ ]] 는 문자열 전체를 본다.
+            [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "::error::sha 입력이 40자 hex 가 아니다. 짧은 sha·브랜치명은 받지 않는다."; exit 1; }
             REF="$INPUT_SHA"
           fi
           if [ "$BRANCH" = "main" ]; then
@@ -93,11 +95,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           R: ${{ github.repository }}
           REF: ${{ steps.r.outputs.ref }}
+          EVENT: ${{ github.event_name }}
+          PINNED: ${{ inputs.sha }}
         run: |
-          STATUS=$(gh api "repos/$R/compare/$REF...main" --jq '.status')
+          # sha 없는 dispatch 는 ref 해석에 기대는 경로라 #1084 가 그대로 재발할 수 있다. 그 경로만
+          # main tip 과의 완전 일치를 요구한다 - 옛 tip 은 main 의 조상이라 ahead 로 통과해버린다.
+          # 의도적 롤백은 sha 를 명시하면 되고, workflow_run 은 CI 대기 중 main 이 앞서갈 수 있어 제외.
+          STRICT=false
+          [ "$EVENT" = "workflow_dispatch" ] && [ -z "$PINNED" ] && STRICT=true
+
+          STATUS=$(gh api "repos/$R/compare/$REF...main" --jq '.status') \
+            || { echo "::error::compare 조회 실패. main 승격 직후면 반영 지연일 수 있으니 잠시 뒤 재실행하라."; exit 1; }
           case "$STATUS" in
-            identical|ahead) echo "::notice::배포 대상 $REF 는 main 히스토리 위에 있다 (compare=$STATUS)" ;;
-            *) echo "::error::배포 대상($REF)이 main 히스토리에 없다(compare=$STATUS). 승격되지 않은 커밋이므로 중단한다."; exit 1 ;;
+            identical)
+              echo "::notice::배포 대상 $REF 는 main tip 과 동일하다" ;;
+            ahead)
+              [ "$STRICT" = "false" ] \
+                || { echo "::error::배포 대상($REF)이 main tip 이 아닌 옛 커밋이다. sha 를 명시하지 않은 dispatch 라 중단한다 - 의도한 롤백이면 sha 입력으로 지정하라."; exit 1; }
+              echo "::notice::배포 대상 $REF 는 main 히스토리 위의 옛 커밋이다 (롤백·지연 배포)" ;;
+            *)
+              echo "::error::배포 대상($REF)이 main 히스토리에 없다(compare=$STATUS). 승격되지 않은 커밋이거나 main 반영 지연이니, 후자면 잠시 뒤 재실행하라."; exit 1 ;;
           esac
 
   deploy:
