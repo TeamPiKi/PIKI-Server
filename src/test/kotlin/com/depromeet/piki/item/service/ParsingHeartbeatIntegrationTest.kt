@@ -89,7 +89,6 @@ class ParsingHeartbeatIntegrationTest : IntegrationTestSupport() {
         val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
         try {
-            // 실제 흐름대로 워커의 소유권 획득(0 -> 1)을 재현한 뒤 그 토큰으로 전이한다.
             val attempt = parsingOwnership.acquire(snapshotId, 0) ?: error("소유권 획득 실패")
             val settled =
                 itemParsingService.markExtracted(

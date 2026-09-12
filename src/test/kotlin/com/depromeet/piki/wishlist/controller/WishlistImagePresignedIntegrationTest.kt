@@ -60,7 +60,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
     @Autowired
     private lateinit var jwtProvider: JwtProvider
 
-    // ---- 발급 (presigned URL) ----
 
     @Test
     fun `presigned 발급하면 요청한 개수만큼 items_raw key 와 uploadUrl 을 받는다`() {
@@ -247,7 +246,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // ---- 확정 (confirm) ----
 
     @Test
     fun `발급받은 key 로 confirm 하면 PENDING 위시가 201 로 생성된다`() {
@@ -266,7 +264,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
                         .content(body),
                 ).andExpect(status().isCreated)
                 .andExpect(jsonPath("$.data.length()").value(2))
-                // 등록 직후 응답은 PENDING 이어야 한다(이미지도 link 처럼 작업 큐에 적재).
                 .andExpect(jsonPath("$.data[0].item.status").value("PENDING"))
                 // 이미지 등록은 원본 URL 이 없어 sourceUrl 도, 거기서 유도하는 sourcePlatform 도 null 이다.
                 .andExpect(jsonPath("$.data[0].item.sourceUrl").value(nullValue()))
@@ -325,7 +322,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         val userId = UUID.randomUUID()
         insertMember(userId)
         try {
-            // S3 에 실제로 올라오지 않은 상황 재현 — HEAD 존재확인이 false 를 돌려준다.
             stubImageStorage.existsBehavior = { false }
             val keys = presignAndGetKeys(mockMvc, userId, listOf("image/png"))
             val body = objectMapper.writeValueAsString(mapOf("imageKeys" to keys))
@@ -411,7 +407,6 @@ class WishlistImagePresignedIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // ---- 헬퍼 ----
 
     private fun presignAndGetKeys(
         mockMvc: MockMvc,

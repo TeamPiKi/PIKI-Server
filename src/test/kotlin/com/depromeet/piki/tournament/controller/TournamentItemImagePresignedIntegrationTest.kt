@@ -168,7 +168,6 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         insertMember(ownerId)
         var tournamentId = 0L
         try {
-            // S3 에 실제로 올라오지 않은 상황 재현 — HEAD 존재확인이 false 를 돌려준다.
             stubImageStorage.existsBehavior = { false }
             tournamentId = createTournament(mockMvc, ownerId)
             val keys = presignAndGetKeys(mockMvc, ownerId, tournamentId, listOf("image/png"))
@@ -288,7 +287,6 @@ class TournamentItemImagePresignedIntegrationTest : IntegrationTestSupport() {
         }
     }
 
-    // ---- 헬퍼 ----
 
     private fun createTournament(
         mockMvc: MockMvc,

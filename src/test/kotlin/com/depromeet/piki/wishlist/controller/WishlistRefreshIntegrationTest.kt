@@ -108,7 +108,6 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                 .andExpect(jsonPath("$.data.item.id").value(itemId))
                 .andExpect(jsonPath("$.data.item.status").value("PENDING"))
 
-            // 디스패처가 집어 추출 성공 → READY 전이, 새 값으로 채워진다.
             itemParsingScheduler.awaitTicking { latestSnapshot(itemId)?.status == ItemStatus.READY }
             val active = latestSnapshot(itemId) ?: error("item $itemId 의 snapshot 이 없다")
             assertEquals("새 상품", active.name)
@@ -120,7 +119,6 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
             assertEquals(ItemStatus.READY, preserved.status)
             assertEquals("옛 상품", preserved.name)
 
-            // wish 활성 포인터가 새 버전으로 스왑됐다.
             assertEquals(active.getId(), wishRepository.findById(wishId)?.waitingSnapshotId)
         } finally {
             cleanup(userId)
@@ -146,7 +144,6 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                 ).andExpect(status().isOk)
                 .andExpect(jsonPath("$.data.item.status").value("PROCESSING"))
 
-            // 멱등 — 새 snapshot 행이 생기지 않고 활성 포인터도 그대로다.
             assertEquals(before, countSnapshots(itemId))
             assertEquals(snapshot.getId(), wishRepository.findById(wish.getId())?.waitingSnapshotId)
         } finally {
@@ -319,9 +316,7 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
 
             itemParsingScheduler.awaitTicking { latestSnapshot(itemId)?.status == ItemStatus.READY }
 
-            // wish 활성은 새 버전으로 스왑됐지만,
             assertNotEquals(oldSnapshotId, wishRepository.findById(wishId)?.waitingSnapshotId)
-            // tournament_item 은 출전 시점 snapshot 에 고정돼 그대로다.
             val fixedSnapshotId =
                 jdbcTemplate.queryForObject(
                     "SELECT snapshot_id FROM tournament_items WHERE id = ?",
@@ -329,7 +324,6 @@ class WishlistRefreshIntegrationTest : IntegrationTestSupport() {
                     tournamentItem.getId(),
                 )
             assertEquals(oldSnapshotId, fixedSnapshotId)
-            // 옛 snapshot 행·값도 보존된다.
             val preserved = itemSnapshotRepository.findById(oldSnapshotId) ?: error("옛 snapshot 이 사라졌다")
             assertEquals("옛 상품", preserved.name)
             assertEquals(ItemStatus.READY, preserved.status)

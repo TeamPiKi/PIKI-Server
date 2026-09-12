@@ -3,7 +3,6 @@ package com.depromeet.piki.support
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 
-// 기본값으로 두면 조용히 막히는 검증 경로만 프로퍼티로 연다:
 // - scheduling.enabled=false: @Scheduled 등록 자체를 막는다(SchedulingConfig). 배경 tick 은 다른 테스트가 커밋한 전역 큐
 //   행을 선점해 결정적 검증을 깨뜨린다(#1080). 폴링이 필요한 테스트는 진입점을 직접 호출한다(awaitTicking).
 // - admin.discord-metrics-channel-id·admin.discord-bot-token: 공백이면 주간 리포트가 SKIPPED 로 빠져 실제 게시

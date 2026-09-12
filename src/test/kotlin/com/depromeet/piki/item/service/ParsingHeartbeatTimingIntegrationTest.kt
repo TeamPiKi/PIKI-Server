@@ -41,7 +41,6 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
         val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0 (집기는 예산 미소모)
         val snapshotId = snapshot.getId()
         try {
-            // 워커가 실행에 진입해 소유권을 획득한 상태를 재현한다 (attempt 0 -> 1).
             assertEquals(1, parsingOwnership.acquire(snapshotId, 0), "실행 진입 시 소유권을 획득해야 한다")
             // threshold 를 지금으로 잡으면 그 직전에 갱신된 행(updated_at < now)은 stale 로 잡힌다.
             val threshold = LocalDateTime.now()
@@ -63,7 +62,6 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
         val snapshot = itemSnapshotRepository.save(ItemSnapshot.pending(item.getId(), requestedBy = UUID.randomUUID()).apply { markProcessing() }) // attempt 0
         val snapshotId = snapshot.getId()
         try {
-            // 워커가 실행에 진입해 소유권을 획득한 상태를 재현한다 (attempt 0 -> 1).
             assertEquals(1, parsingOwnership.acquire(snapshotId, 0), "실행 진입 시 소유권을 획득해야 한다")
             // 등록 전(auto-beat 대상 아님)에 threshold 를 잡으면 그 직전 갱신된 행은 그 시점 이전이라 stale 로 잡힌다 — 결정론.
             val threshold = LocalDateTime.now()
@@ -89,7 +87,6 @@ class ParsingHeartbeatTimingIntegrationTest : IntegrationTestSupport() {
             // 소유권이 다른 시도로 넘어간 상황 재현 — 행은 attempt 2 다.
             jdbcTemplate.update("UPDATE item_snapshots SET attempt_count = 2, updated_at = ? WHERE id = ?", LocalDateTime.now(), snapshotId)
 
-            // 옛 시도(attempt 1)의 박동은 행(attempt 2)과 소유권이 안 맞아 0행이다(fencing).
             assertEquals(0, parsingOwnership.renew(snapshotId, 1), "소유권이 넘어간 행에 옛 attempt 로 박동하면 0행이어야 한다")
 
             // 그 좀비가 레지스트리에 남아 박동하면 beat 가 0행을 보고 제거한다.
