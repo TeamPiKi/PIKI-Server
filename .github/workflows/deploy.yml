@@ -11,6 +11,10 @@ on:
         description: "prod 릴리즈 semver 태그 (예: v1.0.1). 비우면 release-<sha7> 로 폴백. Promote 워크플로가 채운다."
         required: false
         type: string
+      sha:
+        description: "배포할 커밋(40자 hex). 비우면 --ref 가 가리키는 브랜치 끝. Promote 워크플로가 승격한 커밋을 채운다."
+        required: false
+        type: string
 
 jobs:
   # 트리거 브랜치 → 배포 환경(dev/prod)·도메인·nginx conf 를 한 곳에서 결정한다.
@@ -18,6 +22,9 @@ jobs:
   # dev EC2 와 prod EC2 는 같은 워크플로 코드를 쓰되, deploy job 의 environment 키로 secret 이 갈린다.
   resolve:
     runs-on: ubuntu-latest
+    # prod 배포 커밋 검증이 compare API 를 친다.
+    permissions:
+      contents: read
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
@@ -32,9 +39,19 @@ jobs:
       jvm_opts: ${{ steps.r.outputs.jvm_opts }}
     steps:
       - id: r
+        # sha 는 사용자 입력이라 env 로 받아 셸에 직접 보간(injection)하지 않는다.
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
           BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
           REF="${{ github.event.workflow_run.head_sha || github.sha }}"
+          # dispatch 의 github.sha 는 GitHub 이 --ref 를 해석한 결과라, 직전 ref 업데이트가 아직 안 퍼졌으면
+          # 옛 커밋이 잡힌다(2026-09-12 prod 오배포 #1084). 호출자가 커밋을 명시하면 그것을 정본으로 삼는다.
+          if [ -n "$INPUT_SHA" ]; then
+            printf '%s' "$INPUT_SHA" | grep -qE '^[0-9a-f]{40}$' \
+              || { echo "::error::sha 입력이 40자 hex 가 아니다 (받은 값=$INPUT_SHA). 짧은 sha·브랜치명은 받지 않는다."; exit 1; }
+            REF="$INPUT_SHA"
+          fi
           if [ "$BRANCH" = "main" ]; then
             echo "environment=prod" >> "$GITHUB_OUTPUT"
             echo "domain=api.piki.day" >> "$GITHUB_OUTPUT"
@@ -67,6 +84,21 @@ jobs:
           fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # prod 는 main 이 이미 가진 커밋만 배포한다. 위 REF 결정이 어떤 경로로 왔든 여기서 한 번 대조해,
+      # 승격 안 된 커밋이 prod 로 나가는 길을 닫는다.
+      - name: prod 배포 커밋 검증
+        if: ${{ steps.r.outputs.environment == 'prod' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+          REF: ${{ steps.r.outputs.ref }}
+        run: |
+          STATUS=$(gh api "repos/$R/compare/$REF...main" --jq '.status')
+          case "$STATUS" in
+            identical|ahead) echo "::notice::배포 대상 $REF 는 main 히스토리 위에 있다 (compare=$STATUS)" ;;
+            *) echo "::error::배포 대상($REF)이 main 히스토리에 없다(compare=$STATUS). 승격되지 않은 커밋이므로 중단한다."; exit 1 ;;
+          esac
 
   deploy:
     needs: resolve

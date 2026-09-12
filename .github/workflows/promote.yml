@@ -258,11 +258,14 @@ jobs:
           # gh workflow run 은 repo 를 로컬 .git 에서 추론하려 한다. GH_REPO 로 대상 repo 를 명시해 git 의존을 끊는다.
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.plan.outputs.version }}
+          SRC_SHA: ${{ needs.plan.outputs.sha }}
         run: |
           # GITHUB_TOKEN 으로 한 ref 업데이트는 CI(on: push)를 자동 트리거하지 않는다(Actions recursion 방지).
           # ff 라 대상 SHA 는 dev 에서 이미 CI 를 통과한 동일 커밋이므로, CI 재실행 없이 배포만 직접 dispatch 한다.
-          gh workflow run deploy.yml --ref main -f version="$VERSION"
-          echo "::notice::deploy.yml dispatch → main (version=$VERSION)"
+          # sha 를 명시로 넘긴다 — --ref 만 주면 GitHub 이 방금 올린 main 을 아직 옛 커밋으로 해석해
+          # 승격 전 버전이 prod 로 나간다(2026-09-12 실측 #1084).
+          gh workflow run deploy.yml --ref main -f version="$VERSION" -f sha="$SRC_SHA"
+          echo "::notice::deploy.yml dispatch → main ($SRC_SHA, version=$VERSION)"
 
       - name: 요약
         if: ${{ always() }}
