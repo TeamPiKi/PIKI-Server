@@ -47,7 +47,7 @@ class HttpProductLinkExtractor(
                 // 허락 판정의 원장은 core 다. extractor·renderer 는 이 값만큼 수단을 열 뿐,
                 // 무엇이 허락됐는지 스스로 알지 않는다(무상태).
                 .setAuthorized(accessPolicy.authorizedFor(link))
-        // model 미지정은 안 실어 extractor 가 자기 기본 모델을 쓴다(계약 §2) — 지정이 없는 상태를 그대로 흘려보낸다.
+        // 지정이 없으면 필드를 안 실어 extractor 의 기본 모델로 간다 — 없는 상태를 빈 값으로 바꿔 보내지 않는다.
         modelSettings.modelOf(ExtractionTarget.LINK)?.let(request::setModel)
         return RemoteExtractionContract.postForSnapshot(
             restClient = restClient,

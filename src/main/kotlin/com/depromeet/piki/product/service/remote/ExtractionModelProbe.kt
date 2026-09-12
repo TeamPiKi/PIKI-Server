@@ -73,8 +73,7 @@ class HttpExtractionModelProbe(
             log.warn("모델 프로브 일시 실패 status={} target={} model={}", e.statusCode.value(), target, model)
             return IllegalArgumentException(MESSAGE_UNAVAILABLE)
         }
-        // 실패 응답 모양(code 하나)은 추출 계약과 같으므로 계약 생성 클래스를 그대로 쓴다. 모르는 code 문자열은
-        // 파서가 무시해 UNSPECIFIED 로 읽히고, 그 이름은 아래 when 의 else 로 간다.
+        // 실패 body 는 추출 계약과 같은 모양이라 생성 클래스를 공유한다. 모르는 code 는 UNSPECIFIED 라 else 로 간다.
         val code = runCatching { e.getResponseBodyAs(ExtractionFailure::class.java)?.code?.name }.getOrNull()
         // 거절은 계약상 정상 결과(운영자가 없는 모델을 입력)라 info.
         log.info("모델 프로브 거절 code={} target={} model={}", code, target, model)

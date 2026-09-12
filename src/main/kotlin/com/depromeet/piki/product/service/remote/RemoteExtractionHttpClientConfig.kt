@@ -28,8 +28,7 @@ class RemoteExtractionHttpClientConfig {
                     setReadTimeout(properties.readTimeoutMs)
                 },
             ).observationRegistry(observationRegistry)
-            // 계약 생성 클래스(link 요청·응답·422 body)는 Jackson 이 아니라 이 컨버터가 맡는다. 앞에 두어야
-            // Jackson 이 생성 클래스를 일반 빈으로 잘못 집지 않는다.
+            // registerDefaults 를 빼면 Jackson 이 사라져 image·probe 요청이 "컨버터 없음"으로 일시 실패한다(실측).
             .configureMessageConverters { it.registerDefaults().addCustomConverter(RemoteExtractionContract.messageConverter()) }
             .build()
     }

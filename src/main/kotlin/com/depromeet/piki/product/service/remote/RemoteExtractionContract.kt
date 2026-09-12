@@ -22,15 +22,12 @@ import org.springframework.web.client.RestClientResponseException
 // 같은 3갈래 번역을 쓰므로 호출·번역 전체를 한 곳에 모은다 — 계약이 진화할 때 두 클라이언트가 조용히 어긋나는 것을 막는다.
 // 클라이언트별로 갈리는 건 요청 모양(URL vs bucket·key)과 로그 컨텍스트(target)뿐이다.
 //
-// 응답 클래스와 link 요청 클래스는 계약 정본(extraction.proto)에서 생성된다 — 이쪽에서 필드를 정의하지 않으므로
-// 필드명 개명이 한쪽만 되는 사고(currentPrice 사례)가 구조적으로 불가능하다. image·probe 요청은 아직 Jackson 이다.
+// 요청·응답 클래스는 계약 정본에서 생성된다 — 이쪽에 필드 정의가 없어 한쪽만 개명되는 사고가 불가능하다.
 internal object RemoteExtractionContract {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    // 계약 생성 클래스를 JSON 으로 읽고 쓰는 컨버터. RestClient 빈과 테스트의 builder 가 같은 것을 쓴다.
-    // 파서는 모르는 필드·enum 값을 무시한다(tolerant reader, 계약 §5) — 기본 파서는 실패해서 extractor 가 필드를
-    // 먼저 더하면 2xx 가 통째로 일시 실패로 떨어진다. 프린터는 presence 없는 필드(authorized·model)도 찍는다 —
-    // 생략해도 상대는 같은 값으로 읽지만, 원장 로그에 "false 를 보냈다"가 남는 편이 사후 추적에 낫다.
+    // 기본 파서는 모르는 필드에 실패한다 — 그대로 두면 extractor 가 필드를 먼저 더한 2xx 가 일시 실패로 떨어진다.
+    // 프린터는 authorized false 를 생략하지 않고 찍어 "무엇을 보냈나"가 와이어와 상대 로그에 남게 한다.
     fun messageConverter(): HttpMessageConverter<*> =
         ProtobufJsonFormatHttpMessageConverter(
             JsonFormat.parser().ignoringUnknownFields(),
@@ -117,20 +114,12 @@ internal object RemoteExtractionContract {
         return response.toProductSnapshot(link)
     }
 
-    // 성공 응답이 값을 하나도 담지 않았는지 — extractor 의 성공 계약과 대칭인 판정이라 이름도 맞춘다
-    // (extractor 의 ProductSnapshot.hasNoExtractedValue). 이 응답이 2xx 로 온 것 자체가 계약 위반이다.
-    // 판정 기준은 도메인(ItemSnapshot.hasNoExtractedValue)과 같다: currency 는 READY 필수가 아니라 단독으로
-    // "건졌다"의 근거가 되지 못하므로 세지 않고, blank name 은 정규화가 어차피 떨구므로 없는 것으로 본다.
+    // 이 응답이 2xx 로 온 것 자체가 계약 위반이다. 판정 기준의 정본은 ItemSnapshot.hasNoExtractedValue 다.
     private fun ExtractionResult.hasNoExtractedValue(): Boolean =
         !(hasName() && name.isNotBlank()) && !hasImageUrl() && !hasCurrentPrice()
 
-    // 외부 응답 → 도메인 매핑. fromExtracted 를 반드시 경유한다 — https-only imageUrl(XSS 사다리 차단)·currency ISO
-    // 정규화·범위 검증은 모든 추출 경로가 공유하는 단일 진실 원천이고, 원격 계약이 정상 값을 보장하더라도 신뢰 경계
-    // (외부 서비스)를 넘어온 값은 우리 경계에서 다시 검증한다(다층 방어). 범위 위반은 untrustworthyValue
-    // (→ 워커 reason=extract_quality)로 떨어진다.
-    // link 는 이미지 추출엔 원본 URL 이 없어 null 이다 — 이미지 경로의 계약(원본 URL 없음 — 계약 §2).
-    // 안 채운 optional 필드는 has* 로 가른다(JSON 생략과 null 을 같게 읽는 자리). method 는 모르는 값이 오면
-    // UNSPECIFIED 로 읽히므로 그때만 미기록(null)으로 둔다 — tolerant reader.
+    // fromExtracted 를 반드시 경유한다 — 원격이 정상 값을 보장해도 신뢰 경계를 넘어온 값은 다시 검증한다(다층 방어).
+    // has* 로 가르는 이유는 JSON 생략과 null 을 같게 읽기 위해서다. 모르는 method 는 UNSPECIFIED 라 기록하지 않는다.
     private fun ExtractionResult.toProductSnapshot(link: ProductLink?): ProductSnapshot =
         ProductSnapshot.fromExtracted(
             link = link,
